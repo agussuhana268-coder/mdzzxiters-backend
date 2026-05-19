@@ -51,12 +51,25 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 /* ══ BREVO SMTP TRANSPORTER ══ */
 const transporter = nodemailer.createTransport({
-  host:   BREVO_HOST,
-  port:   BREVO_PORT,
-  secure: false, // STARTTLS
-  auth: {
-    user: BREVO_USER,
-    pass: BREVO_PASS
+  host:             BREVO_HOST,
+  port:             BREVO_PORT,
+  secure:           false,
+  auth:             { user: BREVO_USER, pass: BREVO_PASS },
+  connectionTimeout: 15000,   // 15s connect
+  greetingTimeout:   10000,   // 10s greeting
+  socketTimeout:     30000,   // 30s idle
+  pool:             true,     // keep connection alive
+  maxConnections:   2,
+  maxMessages:      10,
+  tls:              { rejectUnauthorized: false }
+});
+
+/* Verify SMTP on startup */
+transporter.verify(function(err, ok) {
+  if (err) {
+    console.error(' SMTP verify FAILED:', err.message);
+  } else {
+    console.log(' SMTP ready — Brevo connected');
   }
 });
 
@@ -102,10 +115,23 @@ app.get('/api/health', async (_, res) => {
   /* Test bucket access */
   let bucketOk = false, bucketErr = null;
   try {
-    const { data, error } = await supabase.storage.from(BUCKET).list('', { limit: 1 });
+    const { data, error } = await Promise.race([
+      supabase.storage.from(BUCKET).list('', { limit: 1 }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
+    ]);
     bucketOk = !error;
     if (error) bucketErr = error.message;
   } catch (e) { bucketErr = e.message; }
+
+  /* Test SMTP */
+  let smtpOk = false, smtpErr = null;
+  try {
+    await Promise.race([
+      transporter.verify(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('SMTP timeout')), 8000))
+    ]);
+    smtpOk = true;
+  } catch(e) { smtpErr = e.message; }
 
   res.json({
     success:   true,
@@ -114,6 +140,7 @@ app.get('/api/health', async (_, res) => {
     keyType:   keyType,
     bucket:    bucketOk ? 'accessible' : ('ERROR: ' + bucketErr),
     brevo:     !!(BREVO_USER && BREVO_PASS),
+    smtp:      smtpOk ? 'connected' : ('ERROR: ' + smtpErr),
     timestamp: new Date().toISOString()
   });
 });
@@ -209,11 +236,20 @@ app.post('/api/send-product', requireAuth, async (req, res) => {
 
   try {
     /* ── STEP 1: Signed URL dari Supabase Storage ── */
-    const { data: sd, error: se } = await supabase.storage
-      .from(BUCKET)
-      .createSignedUrl(fileName, SIGNED_EXPIRY);
+    console.log(`[send] Generating signed URL for: ${fileName}`);
+    let signedResult;
+    try {
+      signedResult = await Promise.race([
+        supabase.storage.from(BUCKET).createSignedUrl(fileName, SIGNED_EXPIRY),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Supabase timeout 10s')), 10000))
+      ]);
+    } catch(supaErr) {
+      throw new Error('Supabase: ' + supaErr.message);
+    }
 
+    const { data: sd, error: se } = signedResult;
     if (se) throw new Error('Supabase Storage: ' + se.message);
+    if (!sd || !sd.signedUrl) throw new Error('Signed URL kosong — cek nama file dan bucket');
 
     const downloadUrl = sd.signedUrl;
     const expireDate  = new Date(Date.now() + SIGNED_EXPIRY * 1000);
@@ -223,14 +259,24 @@ app.post('/api/send-product', requireAuth, async (req, res) => {
       timeZone: 'Asia/Jakarta'
     }) + ' WIB';
 
+    console.log(`[send] Signed URL OK. Sending email to: ${buyerEmail}`);
+
     /* ── STEP 2: Kirim email via Brevo SMTP ── */
-    const info = await transporter.sendMail({
-      from:    `"${FROM_NAME}" <${FROM_EMAIL}>`,
-      to:      buyerEmail,
-      subject: `[MDZZXITERS] Produk Anda: ${productName}`,
-      html:    buildEmailHtml({ buyerEmail, productName, licenseKey, downloadUrl, expireStr }),
-      text:    `Produk: ${productName}\nLicense: ${licenseKey}\nDownload: ${downloadUrl}\nExpired: ${expireStr}`
-    });
+    let info;
+    try {
+      info = await Promise.race([
+        transporter.sendMail({
+          from:    `"${FROM_NAME}" <${FROM_EMAIL}>`,
+          to:      buyerEmail,
+          subject: `[MDZZXITERS] Produk Anda: ${productName}`,
+          html:    buildEmailHtml({ buyerEmail, productName, licenseKey, downloadUrl, expireStr }),
+          text:    `Produk: ${productName}\nLicense: ${licenseKey}\nDownload: ${downloadUrl}\nExpired: ${expireStr}`
+        }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('SMTP timeout 25s — cek kredensial Brevo')), 25000))
+      ]);
+    } catch(smtpErr) {
+      throw new Error('SMTP Brevo: ' + smtpErr.message);
+    }
 
     console.log(`[send] OK → ${buyerEmail} | msgId: ${info.messageId}`);
     res.json({
