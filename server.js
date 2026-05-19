@@ -125,6 +125,58 @@ function requireAuth(req, res, next) {
 }
 
 /* ══════════════════════════
+   GET /download?url=...
+   Halaman redirect iOS-friendly
+   iOS Mail tidak bisa buka Supabase URL langsung
+   Solusi: buka halaman HTML dulu, lalu auto-redirect
+══════════════════════════ */
+app.get('/download', (req, res) => {
+  const url = req.query.url;
+  if (!url || !url.startsWith('https://')) {
+    return res.status(400).send('Link tidak valid atau sudah kedaluwarsa.');
+  }
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Unduh Produk — MDZZXITERS</title>
+<meta http-equiv="refresh" content="2;url=${url}"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#060d1a;font-family:'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#0d1628;border:1px solid rgba(56,189,248,.2);border-radius:20px;padding:36px 28px;text-align:center;max-width:400px;width:100%}
+.logo{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#1e3a8a,#0ea5e9);line-height:56px;font-size:22px;font-weight:900;color:#fff;margin:0 auto 18px;font-family:monospace}
+h1{color:#e2f4ff;font-size:18px;font-weight:700;margin-bottom:8px}
+p{color:#6288aa;font-size:13px;line-height:1.6;margin-bottom:24px}
+.btn{display:block;background:linear-gradient(135deg,#1e3a8a,#2563eb,#0ea5e9);color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:16px 32px;border-radius:12px;margin-bottom:14px}
+.btn-alt{display:block;color:#38bdf8;font-size:12px;text-decoration:underline;word-break:break-all;padding:8px 0}
+.spinner{width:32px;height:32px;border:3px solid rgba(56,189,248,.15);border-top-color:#38bdf8;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 18px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">M</div>
+  <div class="spinner"></div>
+  <h1>Mempersiapkan Unduhan...</h1>
+  <p>File sedang disiapkan. Unduhan akan dimulai otomatis dalam 2 detik.</p>
+  <a href="${url}" class="btn">&#11015; UNDUH SEKARANG</a>
+  <a href="${url}" class="btn-alt">Klik link ini jika tidak terunduh otomatis</a>
+  <p style="margin-top:16px;font-size:11px;color:#334155;">MDZZXITERS &middot; Link kedaluwarsa dalam 15 menit</p>
+</div>
+<script>
+// iOS Safari: force open link
+setTimeout(function(){
+  window.location.href = "${url}";
+}, 2000);
+</script>
+</body>
+</html>`);
+});
+
+/* ══════════════════════════
    GET /api/health
 ══════════════════════════ */
 app.get('/api/health', async (_, res) => {
@@ -262,11 +314,16 @@ app.post('/api/send-product', requireAuth, async (req, res) => {
 
     /* STEP 2: Kirim email via Brevo HTTP API */
     console.log(`[send] Step 2 — Sending email to: ${buyerEmail}`);
+    /* Base URL server untuk redirect page iOS-friendly */
+    const proto   = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host    = req.headers['x-forwarded-host']  || req.headers.host || '';
+    const baseUrl = host ? (proto + '://' + host) : '';
+
     const result = await sendBrevoEmail({
       to:      buyerEmail,
       subject: `[MDZZXITERS] Produk Anda: ${productName}`,
-      html:    buildEmailHtml({ buyerEmail, productName, licenseKey, downloadUrl, expireStr }),
-      text:    `Produk: ${productName}\nLicense: ${licenseKey}\nDownload: ${downloadUrl}\nExpired: ${expireStr}`
+      html:    buildEmailHtml({ buyerEmail, productName, licenseKey, downloadUrl, expireStr, baseUrl }),
+      text:    `Produk: ${productName}\nLicense: ${licenseKey}\nDownload: ${downloadUrl}\nExpired: ${expireStr}\n\nBuka link ini di browser: ${baseUrl}/download?url=${encodeURIComponent(downloadUrl)}`
     });
 
     console.log(`[send] OK → ${buyerEmail} | id: ${result.messageId||'sent'}`);
@@ -284,7 +341,11 @@ app.post('/api/send-product', requireAuth, async (req, res) => {
 });
 
 /* ══ EMAIL HTML TEMPLATE ══ */
-function buildEmailHtml({ buyerEmail, productName, licenseKey, downloadUrl, expireStr }) {
+function buildEmailHtml({ buyerEmail, productName, licenseKey, downloadUrl, expireStr, baseUrl }) {
+  /* Bungkus URL asli ke halaman redirect yang iOS-friendly */
+  const redirectUrl = baseUrl
+    ? baseUrl + '/download?url=' + encodeURIComponent(downloadUrl)
+    : downloadUrl;
   return `<!DOCTYPE html>
 <html lang="id">
 <head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
@@ -318,9 +379,36 @@ function buildEmailHtml({ buyerEmail, productName, licenseKey, downloadUrl, expi
 
   <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
     <tr><td align="center">
-      <a href="${downloadUrl}" style="display:inline-block;background:linear-gradient(135deg,#1e3a8a,#2563eb,#0ea5e9);color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:17px 48px;border-radius:12px;letter-spacing:.5px;">
-        &#11015; UNDUH PRODUK SEKARANG
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="\${redirectUrl}" style="height:52px;v-text-anchor:middle;width:260px;" arcsize="23%" fillcolor="#2563eb">
+      <w:anchorlock/><center style="color:#fff;font-weight:700;font-size:15px;">&#11015; UNDUH PRODUK SEKARANG</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-->
+      <a href="\${redirectUrl}"
+         target="_blank"
+         rel="noopener noreferrer"
+         style="display:inline-block;
+                background:linear-gradient(135deg,#1e3a8a,#2563eb,#0ea5e9);
+                color:#ffffff !important;
+                text-decoration:none !important;
+                font-weight:700;
+                font-size:16px;
+                padding:18px 40px;
+                border-radius:12px;
+                letter-spacing:.5px;
+                mso-hide:all;">
+        &#11015;&nbsp; UNDUH PRODUK SEKARANG
       </a>
+      <!--<![endif]-->
+    </td></tr>
+  </table>
+
+  <!-- Fallback plain URL untuk iOS yang blokir styled button -->
+  <table width="100%" style="margin-bottom:20px;">
+    <tr><td style="text-align:center;padding:10px 16px;background:rgba(0,0,0,.2);border-radius:10px;">
+      <p style="margin:0 0 6px;color:#475569;font-size:10px;font-family:monospace;letter-spacing:1.5px;">ATAU BUKA LINK INI DI BROWSER:</p>
+      <a href="\${redirectUrl}" target="_blank" style="color:#38bdf8;font-size:11px;word-break:break-all;">\${redirectUrl}</a>
     </td></tr>
   </table>
 
