@@ -482,12 +482,18 @@ app.post('/api/licenses', requireFirebaseAdmin, async (req, res) => {
       .insert(cleanRows);
 
     if (error) {
-      console.error('Insert licenses gagal:', error.message);
-      return res.status(500).json({
-        success: false,
-        message: 'Gagal menyimpan lisensi ke Supabase'
-      });
-    }
+     console.error('Insert licenses gagal:', {
+       message: error.message,
+       code: error.code,
+       details: error.details,
+       hint: error.hint
+  });
+
+  return res.status(500).json({
+    success: false,
+    message: 'Gagal menyimpan lisensi ke Supabase'
+  });
+}
 
     return res.json({
       success: true,
