@@ -419,6 +419,18 @@ app.use((err, _, res, __) => {
   res.status(500).json({ success: false, message: err.message });
 });
 
+app.get('/api/admin/verify', requireFirebaseAdmin, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Firebase admin berhasil diverifikasi',
+    admin: {
+      uid: req.verifiedAdmin.uid,
+      username: req.verifiedAdmin.username,
+      role: req.verifiedAdmin.role
+    }
+  });
+});
+
 /* ── Start ── */
 app.listen(PORT, () => {
   console.log('\n╔═══════════════════════════════════════════╗');
