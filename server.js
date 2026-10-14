@@ -508,6 +508,62 @@ app.post('/api/licenses', requireFirebaseAdmin, async (req, res) => {
   }
 });
 
+
+app.post('/api/licenses/revoke', requireFirebaseAdmin, async (req, res) => {
+  try {
+    const key = String(req.body?.key || '').trim();
+
+    if (!key) {
+      return res.status(400).json({
+        success: false,
+        message: 'Key lisensi wajib diisi'
+      });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('licenses')
+      .update({
+        active: false,
+        status: 'revoked'
+      })
+      .eq('key', key)
+      .select('key');
+
+    if (error) {
+      console.error('Revoke license gagal:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+
+      return res.status(500).json({
+        success: false,
+        message: 'Gagal revoke lisensi di Supabase'
+      });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Key tidak ditemukan di Supabase'
+      });
+    }
+
+    return res.json({
+      success: true,
+      count: data.length
+    });
+  } catch (err) {
+    console.error('POST /api/licenses/revoke gagal:', err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi kesalahan pada server'
+    });
+  }
+});
+
 /* ── Start ── */
 app.listen(PORT, () => {
   console.log('\n╔═══════════════════════════════════════════╗');
