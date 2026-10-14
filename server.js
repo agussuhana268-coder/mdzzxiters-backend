@@ -442,6 +442,59 @@ app.get('/api/admin/verify', requireFirebaseAdmin, (req, res) => {
   });
 });
 
+app.post('/api/licenses', requireFirebaseAdmin, async (req, res) => {
+  try {
+    const rows = req.body && req.body.rows;
+
+    if (!Array.isArray(rows) || rows.length === 0 || rows.length > 50) {
+      return res.status(400).json({
+        success: false,
+        message: 'Data lisensi tidak valid (maksimal 50)'
+      });
+    }
+
+    const cleanRows = rows.map((row) => ({
+      key: String(row.key || '').trim(),
+      project: String(row.project || '').trim(),
+      generated_by: req.verifiedAdmin.username || req.verifiedAdmin.uid,
+      active: true,
+      used: false,
+      status: 'unused',
+      expires_at: row.expires_at || null
+    }));
+
+    if (cleanRows.some((row) => !row.key || !row.project)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Key dan project wajib diisi'
+      });
+    }
+
+    const { error } = await supabaseAdmin
+      .from('licenses')
+      .insert(cleanRows);
+
+    if (error) {
+      console.error('Insert licenses gagal:', error.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Gagal menyimpan lisensi ke Supabase'
+      });
+    }
+
+    return res.json({
+      success: true,
+      count: cleanRows.length
+    });
+  } catch (err) {
+    console.error('POST /api/licenses gagal:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi kesalahan pada server'
+    });
+  }
+});
+
 /* ── Start ── */
 app.listen(PORT, () => {
   console.log('\n╔═══════════════════════════════════════════╗');
