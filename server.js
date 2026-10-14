@@ -180,7 +180,7 @@ app.get('/download', (req, res) => {
   if (!fileUrl || !fileUrl.startsWith('https://')) {
     return res.status(400).send('<h2>Link tidak valid atau sudah kedaluwarsa.</h2>');
   }
-  // Encode untuk keamanan tampilan di HTML
+  // Encode for keamanan tampilan di HTML
   const safeUrl = fileUrl.replace(/"/g, '%22').replace(/</g, '%3C').replace(/>/g, '%3E');
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
