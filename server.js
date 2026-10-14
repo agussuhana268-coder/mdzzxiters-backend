@@ -37,6 +37,17 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false }
 });
 
+const supabaseAdmin = createClient(
+  (process.env.SUPABASE_URL || '').replace(/\/$/, ''),
+  process.env.SUPABASE_SERVICE_KEY || '',
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    }
+  }
+);
+
 // Firebase Admin SDK — server-side token verification
 if (!admin.apps.length) {
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
