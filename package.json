@@ -13,6 +13,7 @@
     "dotenv": "^16.4.5",
     "firebase-admin": "^13.0.2",
     "express": "^4.21.1",
+    "express-rate-limit": "^7.5.0",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.16"
   },
