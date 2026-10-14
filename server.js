@@ -38,8 +38,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 });
 
 const supabaseAdmin = createClient(
-  (process.env.SUPABASE_URL || '').replace(/\/$/, ''),
-  process.env.SUPABASE_SERVICE_KEY || '',
+  (process.env.SUPABASE_LICENSE_URL || '').replace(/\/rest\/v1\/?$/, '').replace(/\/$/, ''),
+  process.env.SUPABASE_LICENSE_SERVICE_KEY || '',
   {
     auth: {
       persistSession: false,
