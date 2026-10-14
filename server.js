@@ -48,6 +48,13 @@ const supabaseAdmin = createClient(
   }
 );
 
+console.log('Supabase admin config:', {
+  urlSet: !!process.env.SUPABASE_URL,
+  serviceKeySet: !!process.env.SUPABASE_SERVICE_KEY,
+  serviceKeyLength: (process.env.SUPABASE_SERVICE_KEY || '').length,
+  serviceKeyPrefix: (process.env.SUPABASE_SERVICE_KEY || '').slice(0, 12)
+});
+
 // Firebase Admin SDK — server-side token verification
 if (!admin.apps.length) {
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
