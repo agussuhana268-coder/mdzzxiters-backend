@@ -11,6 +11,8 @@ const multer  = require('multer');
 const path    = require('path');
 const https   = require('https');
 const { createClient } = require('@supabase/supabase-js');
+const admin = require('firebase-admin');
+
 
 /* ══ CONFIG ══ */
 const PORT          = process.env.PORT || 3000;
@@ -34,6 +36,21 @@ function pickKey(){
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false }
 });
+
+// Firebase Admin SDK — server-side token verification
+if (!admin.apps.length) {
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+
+  if (!serviceAccountJson) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON belum diset');
+  }
+
+  admin.initializeApp({
+    credential: admin.credential.cert(JSON.parse(serviceAccountJson))
+  });
+}
+
+const adminDb = admin.firestore();
 
 /* ══ BREVO HTTP API ══ */
 function sendBrevoEmail(to, subject, html, text) {
@@ -105,6 +122,56 @@ function requireAuth(req, res, next) {
   if (req.headers['x-admin-key'] !== ADMIN_KEY)
     return res.status(401).json({ success: false, message: 'Unauthorized' });
   next();
+}
+
+async function requireFirebaseAdmin(req, res, next) {
+  try {
+    const header = req.headers.authorization || '';
+
+    if (!header.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token autentikasi diperlukan'
+      });
+    }
+
+    const idToken = header.slice(7).trim();
+    const decoded = await admin.auth().verifyIdToken(idToken);
+
+    const adminDoc = await adminDb
+      .collection('admins')
+      .doc(decoded.uid)
+      .get();
+
+    if (!adminDoc.exists) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akun bukan admin'
+      });
+    }
+
+    const adminData = adminDoc.data() || {};
+
+    if (!['owner', 'admin'].includes(adminData.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akses admin ditolak'
+      });
+    }
+
+    req.verifiedAdmin = {
+      uid: decoded.uid,
+      username: adminData.username,
+      role: adminData.role
+    };
+
+    next();
+  } catch (err) {
+    return res.status(401).json({
+      success: false,
+      message: 'Token autentikasi tidak valid'
+    });
+  }
 }
 
 /* ══ GET /download — Halaman redirect iOS-friendly ══ */
