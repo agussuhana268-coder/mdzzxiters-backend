@@ -6,6 +6,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const cors    = require('cors');
 const multer  = require('multer');
 const path    = require('path');
@@ -122,6 +123,20 @@ function sendBrevoEmail(to, subject, html, text) {
 
 /* ══ APP ══ */
 const app = express();
+
+app.use(express.json());
+
+const activationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Terlalu banyak percobaan aktivasi. Coba lagi nanti.'
+  }
+});
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 200 * 1024 * 1024 },
