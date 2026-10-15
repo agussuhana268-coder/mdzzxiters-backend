@@ -723,6 +723,96 @@ app.post('/api/licenses/check', activationLimiter, async (req, res) => {
   }
 });
 
+app.post('/api/licenses/session', activationLimiter, async (req, res) => {
+  try {
+    const key = String(req.body?.key || '').trim().toUpperCase();
+    const deviceId = String(req.body?.device_id || '').trim();
+
+    if (!key || !deviceId || key.length > 200 || deviceId.length > 300) {
+      return res.status(400).json({
+        success: false,
+        code: 'invalid_input'
+      });
+    }
+
+    // Pastikan lisensi masih valid untuk perangkat ini.
+    const { data: checkData, error: checkError } =
+      await supabaseAdmin.rpc('check_license', {
+        p_key: key,
+        p_device_id: deviceId
+      });
+
+    if (checkError) {
+      console.error('Pemeriksaan sesi gagal:', checkError.message);
+      return res.status(500).json({
+        success: false,
+        code: 'server_error'
+      });
+    }
+
+    const checked = typeof checkData === 'string'
+      ? JSON.parse(checkData)
+      : checkData;
+
+    if (!checked || checked.success !== true) {
+      return res.status(403).json({
+        success: false,
+        code: checked?.code || 'license_invalid'
+      });
+    }
+
+    // Cari sesi yang sudah ada.
+    const { data: rows, error: findError } = await supabaseAdmin
+      .from('sessions')
+      .select('id')
+      .eq('key', key)
+      .limit(1);
+
+    if (findError) {
+      console.error('Pencarian sesi gagal:', findError.message);
+      return res.status(500).json({
+        success: false,
+        code: 'session_update_failed'
+      });
+    }
+
+    const sessionData = {
+      platform: 'nexus_android',
+      online: true,
+      last_seen: new Date().toISOString()
+    };
+
+    let sessionResult;
+
+    if (rows && rows.length > 0) {
+      sessionResult = await supabaseAdmin
+        .from('sessions')
+        .update(sessionData)
+        .eq('id', rows[0].id);
+    } else {
+      sessionResult = await supabaseAdmin
+        .from('sessions')
+        .insert({ key, ...sessionData });
+    }
+
+    if (sessionResult.error) {
+      console.error('Pembaruan sesi gagal:', sessionResult.error.message);
+      return res.status(500).json({
+        success: false,
+        code: 'session_update_failed'
+      });
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('POST /api/licenses/session gagal:', err.message);
+    return res.status(500).json({
+      success: false,
+      code: 'server_error'
+    });
+  }
+});
+
 /* ── Start ── */
 app.listen(PORT, () => {
   console.log('\n╔═══════════════════════════════════════════╗');
