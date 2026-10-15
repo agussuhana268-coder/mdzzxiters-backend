@@ -169,17 +169,40 @@ async function requireFirebaseAdmin(req, res, next) {
     }
 
     const idToken = header.slice(7).trim();
-    const decoded = await admin.auth().verifyIdToken(idToken);
+    let decoded;
 
-    const adminDoc = await adminDb
-      .collection('admins')
-      .doc(decoded.uid)
-      .get();
+    // Pisahkan kegagalan verifikasi token dari kegagalan membaca Firestore.
+    try {
+      decoded = await admin.auth().verifyIdToken(idToken);
+    } catch (err) {
+      console.warn('[Auth] Firebase ID token ditolak:', err.code || err.message);
+      return res.status(401).json({
+        success: false,
+        code: 'INVALID_FIREBASE_TOKEN',
+        message: 'Token Firebase tidak valid atau kedaluwarsa. Silakan login ulang.'
+      });
+    }
+
+    let adminDoc;
+    try {
+      adminDoc = await adminDb
+        .collection('admins')
+        .doc(decoded.uid)
+        .get();
+    } catch (err) {
+      console.error('[Auth] Gagal membaca dokumen admin di Firestore:', err.code || err.message);
+      return res.status(503).json({
+        success: false,
+        code: 'ADMIN_STORE_UNAVAILABLE',
+        message: 'Layanan verifikasi admin sedang tidak tersedia (Firestore). Periksa kuota/koneksi lalu coba lagi.'
+      });
+    }
 
     if (!adminDoc.exists) {
       return res.status(403).json({
         success: false,
-        message: 'Akun bukan admin'
+        code: 'NOT_ADMIN',
+        message: 'Akun Firebase ini belum terdaftar sebagai admin.'
       });
     }
 
@@ -188,23 +211,19 @@ async function requireFirebaseAdmin(req, res, next) {
     if (!['owner', 'admin'].includes(adminData.role)) {
       return res.status(403).json({
         success: false,
-        message: 'Akses admin ditolak'
+        code: 'ADMIN_ROLE_DENIED',
+        message: 'Akses admin ditolak.'
       });
     }
 
     req.verifiedAdmin = {
       uid: decoded.uid,
       username: adminData.username,
+      name: adminData.name,
       role: adminData.role
     };
 
     next();
-  } catch (err) {
-    return res.status(401).json({
-      success: false,
-      message: 'Token autentikasi tidak valid'
-    });
-  }
 }
 
 /* ══ GET /download — Halaman redirect iOS-friendly ══ */
