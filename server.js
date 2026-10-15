@@ -579,6 +579,81 @@ app.post('/api/licenses/revoke', requireFirebaseAdmin, async (req, res) => {
   }
 });
 
+// Aktivasi lisensi dari APK
+app.post('/api/licenses/activate', activationLimiter, async (req, res) => {
+  try {
+    const key = String(req.body?.key || '').trim().toUpperCase();
+    const deviceId = String(req.body?.device_id || '').trim();
+    const nexusId = String(req.body?.nexus_id || '').trim();
+
+    if (!key || !deviceId || !nexusId) {
+      return res.status(400).json({
+        success: false,
+        code: 'invalid_input',
+        message: 'Key, device_id, dan nexus_id wajib diisi'
+      });
+    }
+
+    if (key.length > 200 || deviceId.length > 300 || nexusId.length > 300) {
+      return res.status(400).json({
+        success: false,
+        code: 'invalid_input',
+        message: 'Input terlalu panjang'
+      });
+    }
+
+    const { data, error } = await supabaseAdmin.rpc('activate_license', {
+      p_key: key,
+      p_device_id: deviceId,
+      p_nexus_id: nexusId
+    });
+
+    if (error) {
+      console.error('Aktivasi lisensi gagal:', {
+        message: error.message,
+        code: error.code
+      });
+
+      return res.status(500).json({
+        success: false,
+        message: 'Gagal memproses aktivasi lisensi'
+      });
+    }
+
+    const result = typeof data === 'string' ? JSON.parse(data) : data;
+
+    if (!result || result.success !== true) {
+      const codes = {
+        invalid_input: 400,
+        not_found: 404,
+        revoked: 403,
+        expired: 403,
+        already_bound: 409,
+        invalid_expiry: 500
+      };
+
+      const code = result?.code || 'activation_failed';
+
+      return res.status(codes[code] || 400).json({
+        success: false,
+        code
+      });
+    }
+
+    return res.json({
+      success: true,
+      nexus_id: result.nexus_id
+    });
+  } catch (err) {
+    console.error('POST /api/licenses/activate gagal:', err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi kesalahan pada server'
+    });
+  }
+});
+
 /* ── Start ── */
 app.listen(PORT, () => {
   console.log('\n╔═══════════════════════════════════════════╗');
