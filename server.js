@@ -464,6 +464,39 @@ app.get('/api/admin/verify', requireFirebaseAdmin, (req, res) => {
   });
 });
 
+/* Refresh status lisensi untuk panel admin. Supabase service key hanya di backend. */
+app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('licenses')
+      .select('key,active,used,device_id,status')
+      .order('key', { ascending: true })
+      .limit(5000);
+
+    if (error) {
+      console.error('GET /api/licenses/status Supabase error:', {
+        message: error.message, code: error.code, details: error.details, hint: error.hint
+      });
+      return res.status(502).json({
+        success: false,
+        message: 'Supabase menolak permintaan status. Periksa SUPABASE_LICENSE_URL dan SUPABASE_LICENSE_SERVICE_KEY di backend.'
+      });
+    }
+
+    return res.set('Cache-Control', 'no-store').json({
+      success: true,
+      count: (data || []).length,
+      rows: data || []
+    });
+  } catch (err) {
+    console.error('GET /api/licenses/status gagal:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal memuat status lisensi dari backend.'
+    });
+  }
+});
+
 app.post('/api/licenses', requireFirebaseAdmin, async (req, res) => {
   try {
     const rows = req.body && req.body.rows;
