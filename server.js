@@ -654,6 +654,75 @@ app.post('/api/licenses/activate', activationLimiter, async (req, res) => {
   }
 });
 
+app.post('/api/licenses/check', activationLimiter, async (req, res) => {
+  try {
+    const key = String(req.body?.key || '').trim().toUpperCase();
+    const deviceId = String(req.body?.device_id || '').trim();
+
+    if (!key || !deviceId) {
+      return res.status(400).json({
+        success: false,
+        code: 'invalid_input'
+      });
+    }
+
+    if (key.length > 200 || deviceId.length > 300) {
+      return res.status(400).json({
+        success: false,
+        code: 'invalid_input'
+      });
+    }
+
+    const { data, error } = await supabaseAdmin.rpc('check_license', {
+      p_key: key,
+      p_device_id: deviceId
+    });
+
+    if (error) {
+      console.error('Pemeriksaan lisensi gagal:', {
+        message: error.message,
+        code: error.code
+      });
+
+      return res.status(500).json({
+        success: false,
+        code: 'server_error'
+      });
+    }
+
+    const result = typeof data === 'string' ? JSON.parse(data) : data;
+
+    if (!result || result.success !== true) {
+      const code = result?.code || 'check_failed';
+      const statusCodes = {
+        invalid_input: 400,
+        not_found: 404,
+        revoked: 403,
+        expired: 403,
+        already_bound: 409,
+        invalid_expiry: 500
+      };
+
+      return res.status(statusCodes[code] || 400).json({
+        success: false,
+        code
+      });
+    }
+
+    return res.json({
+      success: true,
+      nexus_id: result.nexus_id || ''
+    });
+  } catch (err) {
+    console.error('POST /api/licenses/check gagal:', err.message);
+
+    return res.status(500).json({
+      success: false,
+      code: 'server_error'
+    });
+  }
+});
+
 /* ── Start ── */
 app.listen(PORT, () => {
   console.log('\n╔═══════════════════════════════════════════╗');
