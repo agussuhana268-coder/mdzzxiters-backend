@@ -673,7 +673,7 @@ app.post('/api/admins', requireFirebaseAdmin, async (req,res)=>{
     const passwordHash=await hashAdminPassword(password);
     const {data,error}=await supabaseAdmin.from('admins').insert({username,name,role:'admin',password:passwordHash}).select('id,username,name,role,created_at,avatar_url').single();
     if(error){if(error.code==='23505')return res.status(409).json({success:false,message:'Username sudah digunakan.'});console.error('POST /api/admins:',error.message);return res.status(502).json({success:false,message:'Gagal membuat admin di Supabase. Periksa tabel admins.'});}
-    return res.status(201).json({success:true,admin:data});
+    return res.status(201).set('Cache-Control','no-store').json({success:true,admin:data});
   }catch(err){console.error('POST /api/admins gagal:',err.message);return res.status(500).json({success:false,message:'Gagal menambah admin.'});}
 });
 app.delete('/api/admins/:id', requireFirebaseAdmin, async (req,res)=>{
