@@ -577,6 +577,69 @@ app.patch('/api/admins/me', requireFirebaseAdmin, async (req, res) => {
   }
 });
 
+/* Profil admin saat ini. Owner UID allowlist boleh memiliki profil virtual sampai migrasi data selesai. */
+app.get('/api/admins/me', requireFirebaseAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('admins')
+      .select('id,username,name,role,created_at,avatar_url')
+      .eq('username', req.verifiedAdmin.username).maybeSingle();
+    if (error) {
+      console.error('GET /api/admins/me Supabase error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal membaca profil admin dari Supabase.' });
+    }
+    const isOwner = req.verifiedAdmin.role === 'owner';
+    if (!data && !isOwner) return res.status(404).json({ success: false, code: 'ADMIN_PROFILE_NOT_FOUND', message: 'Profil belum ada di Supabase. Migrasikan data admin terlebih dahulu.' });
+    return res.set('Cache-Control', 'no-store').json({
+      success: true,
+      profile: data || {
+        id: req.verifiedAdmin.uid,
+        username: req.verifiedAdmin.username,
+        name: req.verifiedAdmin.name || req.verifiedAdmin.username,
+        role: req.verifiedAdmin.role,
+        created_at: null,
+        avatar_url: null,
+        virtual: true
+      }
+    });
+  } catch (err) {
+    console.error('GET /api/admins/me gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal memuat profil admin.' });
+  }
+});
+
+app.patch('/api/admins/me', requireFirebaseAdmin, async (req, res) => {
+  try {
+    const name = req.body?.name == null ? undefined : String(req.body.name).trim().slice(0, 100);
+    const avatar_url = req.body?.avatar_url == null ? undefined : String(req.body.avatar_url).trim().slice(0, 1000);
+    if (name !== undefined && !name) return res.status(400).json({ success: false, message: 'Nama tidak boleh kosong.' });
+    if (avatar_url !== undefined && avatar_url && !/^https:\/\//i.test(avatar_url)) return res.status(400).json({ success: false, message: 'URL foto harus menggunakan HTTPS.' });
+    if (name === undefined && avatar_url === undefined) return res.status(400).json({ success: false, message: 'Tidak ada perubahan profil.' });
+    const { data: existing, error: findError } = await supabaseAdmin.from('admins')
+      .select('id,username,name,role,created_at,avatar_url')
+      .eq('username', req.verifiedAdmin.username).maybeSingle();
+    if (findError) {
+      console.error('PATCH /api/admins/me lookup error:', findError.message);
+      return res.status(502).json({ success: false, message: 'Gagal memeriksa profil admin di Supabase.' });
+    }
+    if (!existing) {
+      return res.status(409).json({ success: false, code: 'ADMIN_PROFILE_NOT_FOUND', message: 'Profil belum ada di Supabase. Migrasikan data admin terlebih dahulu.' });
+    }
+    const patch = {};
+    if (name !== undefined) patch.name = name;
+    if (avatar_url !== undefined) patch.avatar_url = avatar_url || null;
+    const { data, error } = await supabaseAdmin.from('admins').update(patch).eq('id', existing.id)
+      .select('id,username,name,role,created_at,avatar_url').single();
+    if (error) {
+      console.error('PATCH /api/admins/me update error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal menyimpan profil admin ke Supabase.' });
+    }
+    return res.json({ success: true, profile: data });
+  } catch (err) {
+    console.error('PATCH /api/admins/me gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal menyimpan profil admin.' });
+  }
+});
+
 /* Daftar admin dari Supabase. Jangan pernah mengirim kolom password ke browser. */
 app.get('/api/admins', requireFirebaseAdmin, async (_req, res) => {
   try {
