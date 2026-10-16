@@ -839,6 +839,51 @@ app.post('/api/licenses', requireFirebaseAdmin, async (req, res) => {
 });
 
 
+
+/* Reset penggunaan lisensi dari panel admin. */
+app.post('/api/licenses/reset-usage', requireFirebaseAdmin, async (req, res) => {
+  try {
+    const key = String(req.body?.key || '').trim();
+    if (!key) return res.status(400).json({ success: false, message: 'Key lisensi wajib diisi.' });
+    const { data, error } = await supabaseAdmin
+      .from('licenses')
+      .update({ used: false, device_id: null, used_at: null, status: 'unused' })
+      .eq('key', key)
+      .select('key');
+    if (error) {
+      console.error('Reset penggunaan lisensi gagal:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal mereset lisensi di Supabase.' });
+    }
+    if (!data || !data.length) return res.status(404).json({ success: false, message: 'Key tidak ditemukan di Supabase.' });
+    return res.json({ success: true, count: data.length });
+  } catch (err) {
+    console.error('POST /api/licenses/reset-usage gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server.' });
+  }
+});
+
+/* Tandai lisensi sebagai sudah digunakan setelah produk terkirim. */
+app.post('/api/licenses/mark-used', requireFirebaseAdmin, async (req, res) => {
+  try {
+    const key = String(req.body?.key || '').trim();
+    if (!key) return res.status(400).json({ success: false, message: 'Key lisensi wajib diisi.' });
+    const { data, error } = await supabaseAdmin
+      .from('licenses')
+      .update({ used: true, used_at: new Date().toISOString(), status: 'used' })
+      .eq('key', key)
+      .select('key');
+    if (error) {
+      console.error('Mark-used lisensi gagal:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal memperbarui status lisensi di Supabase.' });
+    }
+    if (!data || !data.length) return res.status(404).json({ success: false, message: 'Key tidak ditemukan di Supabase.' });
+    return res.json({ success: true, count: data.length });
+  } catch (err) {
+    console.error('POST /api/licenses/mark-used gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server.' });
+  }
+});
+
 app.post('/api/licenses/revoke', requireFirebaseAdmin, async (req, res) => {
   try {
     const key = String(req.body?.key || '').trim();
