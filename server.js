@@ -635,7 +635,7 @@ app.patch('/api/admins/me', requireFirebaseAdmin, async (req, res) => {
         console.error('PATCH /api/admins/me owner profile create error:', createError.message);
         return res.status(502).json({ success: false, message: 'Profil owner belum ada dan belum bisa dibuat. Pastikan kolom password di tabel admins boleh NULL, atau siapkan migrasi metadata admin terlebih dahulu.' });
       }
-      return res.json({ success: true, profile: created });
+      return res.set('Cache-Control', 'no-store').json({ success: true, profile: created });
     }
     const patch = {};
     if (name !== undefined) patch.name = name;
@@ -646,7 +646,7 @@ app.patch('/api/admins/me', requireFirebaseAdmin, async (req, res) => {
       console.error('PATCH /api/admins/me update error:', error.message);
       return res.status(502).json({ success: false, message: 'Gagal menyimpan profil admin ke Supabase.' });
     }
-    return res.json({ success: true, profile: data });
+    return res.set('Cache-Control', 'no-store').json({ success: true, profile: data });
   } catch (err) {
     console.error('PATCH /api/admins/me gagal:', err.message);
     return res.status(500).json({ success: false, message: 'Gagal menyimpan profil admin.' });
