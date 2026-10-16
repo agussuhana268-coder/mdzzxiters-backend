@@ -685,7 +685,7 @@ app.delete('/api/admins/:id', requireFirebaseAdmin, async (req,res)=>{
     if(target.role==='owner'||target.username===req.verifiedAdmin.username)return res.status(403).json({success:false,message:'Akun owner tidak boleh dihapus.'});
     const {error}=await supabaseAdmin.from('admins').delete().eq('id',req.params.id);
     if(error){console.error('DELETE /api/admins:',error.message);return res.status(502).json({success:false,message:'Gagal menghapus admin dari Supabase.'});}
-    return res.json({success:true});
+    return res.set('Cache-Control','no-store').json({success:true});
   }catch(err){console.error('DELETE /api/admins gagal:',err.message);return res.status(500).json({success:false,message:'Gagal menghapus admin.'});}
 });
 
