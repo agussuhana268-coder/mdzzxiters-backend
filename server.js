@@ -590,6 +590,74 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
   }
 });
 
+/* Set password khusus dashboard untuk satu-satunya akun owner.
+   Endpoint sementara migrasi: wajib memakai sesi Firebase owner yang lolos ADMIN_UID_ALLOWLIST.
+   Password hanya disimpan sebagai hash scrypt di Supabase dan tidak pernah dikembalikan. */
+app.post('/api/admin/owner-password', requireFirebaseAdmin, async (req, res) => {
+  try {
+    if (req.verifiedAdmin?.role !== 'owner') {
+      return res.status(403).set('Cache-Control', 'no-store').json({
+        success: false,
+        message: 'Hanya owner yang dapat menyiapkan password dashboard.'
+      });
+    }
+
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (password.length < 12 || password.length > 256) {
+      return res.status(400).set('Cache-Control', 'no-store').json({
+        success: false,
+        message: 'Password dashboard harus 12–256 karakter.'
+      });
+    }
+
+    const { data: owners, error: lookupError } = await supabaseAdmin
+      .from('admins')
+      .select('id,username,role')
+      .eq('role', 'owner')
+      .limit(2);
+
+    if (lookupError) {
+      console.error('Owner password lookup failed:', lookupError.message);
+      return res.status(502).set('Cache-Control', 'no-store').json({
+        success: false,
+        message: 'Gagal memeriksa akun owner di Supabase.'
+      });
+    }
+    if (!owners || owners.length !== 1) {
+      return res.status(409).set('Cache-Control', 'no-store').json({
+        success: false,
+        message: 'Harus ada tepat satu akun owner di tabel admins sebelum password dapat disiapkan.'
+      });
+    }
+
+    const passwordHash = await hashAdminPassword(password);
+    const { error: updateError } = await supabaseAdmin
+      .from('admins')
+      .update({ password: passwordHash })
+      .eq('id', owners[0].id)
+      .eq('role', 'owner');
+
+    if (updateError) {
+      console.error('Owner password update failed:', updateError.message);
+      return res.status(502).set('Cache-Control', 'no-store').json({
+        success: false,
+        message: 'Gagal menyimpan password owner di Supabase.'
+      });
+    }
+
+    return res.set('Cache-Control', 'no-store').json({
+      success: true,
+      message: 'Password dashboard owner berhasil disiapkan. Login berikutnya dapat menggunakan username dan password Supabase.'
+    });
+  } catch (err) {
+    console.error('Owner password setup failed:', err.message);
+    return res.status(500).set('Cache-Control', 'no-store').json({
+      success: false,
+      message: 'Gagal menyiapkan password dashboard owner.'
+    });
+  }
+});
+
 /* Login username/password admin melalui backend. Password tidak pernah dikirim kembali. */
 const adminLoginLimiter = rateLimit({windowMs:15*60*1000,limit:10,standardHeaders:true,legacyHeaders:false,message:{success:false,message:'Terlalu banyak percobaan login. Coba lagi dalam 15 menit.'}});
 app.post('/api/admin/login', adminLoginLimiter, async (req,res)=>{
