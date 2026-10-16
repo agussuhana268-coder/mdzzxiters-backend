@@ -526,6 +526,39 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
   }
 });
 
+/* Activity log panel disimpan di Supabase, bukan Firestore. */
+app.get('/api/activity', requireFirebaseAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('activity_log').select('id,type,text,admin,created_at').order('created_at', { ascending: false }).limit(200);
+    if (error) {
+      console.error('GET /api/activity Supabase error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal membaca activity log dari Supabase. Pastikan kolom tabel activity_log sesuai.' });
+    }
+    return res.set('Cache-Control', 'no-store').json({ success: true, count: (data || []).length, rows: data || [] });
+  } catch (err) {
+    console.error('GET /api/activity gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal memuat activity log.' });
+  }
+});
+
+app.post('/api/activity', requireFirebaseAdmin, async (req, res) => {
+  try {
+    const type = String(req.body?.type || '').trim().slice(0, 40);
+    const message = String(req.body?.text || '').trim().slice(0, 5000);
+    const actor = String(req.body?.admin || req.verifiedAdmin.username || req.verifiedAdmin.uid).trim().slice(0, 120);
+    if (!type || !message) return res.status(400).json({ success: false, message: 'Tipe dan isi activity wajib diisi.' });
+    const { data, error } = await supabaseAdmin.from('activity_log').insert({ type, text: message, admin: actor }).select('id,type,text,admin,created_at').single();
+    if (error) {
+      console.error('POST /api/activity Supabase error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal menyimpan activity log ke Supabase. Pastikan kolom tabel activity_log sesuai.' });
+    }
+    return res.status(201).json({ success: true, activity: data });
+  } catch (err) {
+    console.error('POST /api/activity gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal menyimpan activity log.' });
+  }
+});
+
 /* Data proyek panel admin tersimpan di Supabase. */
 app.get('/api/projects', requireFirebaseAdmin, async (_req, res) => {
   try {
