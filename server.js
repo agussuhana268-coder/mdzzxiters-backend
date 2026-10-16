@@ -526,6 +526,25 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
   }
 });
 
+/* Daftar admin dari Supabase. Jangan pernah mengirim kolom password ke browser. */
+app.get('/api/admins', requireFirebaseAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('admins')
+      .select('id,username,name,role,created_at,avatar_url')
+      .order('created_at', { ascending: true })
+      .limit(500);
+    if (error) {
+      console.error('GET /api/admins Supabase error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal membaca daftar admin dari Supabase.' });
+    }
+    return res.set('Cache-Control', 'no-store').json({ success: true, count: (data || []).length, rows: data || [] });
+  } catch (err) {
+    console.error('GET /api/admins gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal memuat daftar admin.' });
+  }
+});
+
 /* Activity log panel disimpan di Supabase, bukan Firestore. */
 app.get('/api/activity', requireFirebaseAdmin, async (_req, res) => {
   try {
