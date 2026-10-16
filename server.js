@@ -532,51 +532,6 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
   }
 });
 
-/* Profil admin sendiri: hanya mengubah baris yang cocok dengan username token terverifikasi. */
-app.get('/api/admins/me', requireFirebaseAdmin, async (req, res) => {
-  try {
-    const username = String(req.verifiedAdmin.username || '').trim();
-    if (!username) return res.status(400).json({ success: false, message: 'Username admin tidak tersedia.' });
-    const { data, error } = await supabaseAdmin.from('admins')
-      .select('id,username,name,role,created_at,avatar_url')
-      .eq('username', username).maybeSingle();
-    if (error) {
-      console.error('GET /api/admins/me Supabase error:', error.message);
-      return res.status(502).json({ success: false, message: 'Gagal membaca profil admin.' });
-    }
-    return res.set('Cache-Control', 'no-store').json({ success: true, profile: data || null });
-  } catch (err) {
-    console.error('GET /api/admins/me gagal:', err.message);
-    return res.status(500).json({ success: false, message: 'Gagal memuat profil admin.' });
-  }
-});
-
-app.patch('/api/admins/me', requireFirebaseAdmin, async (req, res) => {
-  try {
-    const username = String(req.verifiedAdmin.username || '').trim();
-    const name = String(req.body?.name || '').trim().slice(0, 100);
-    const avatar_url = req.body?.avatar_url == null ? null : String(req.body.avatar_url).trim().slice(0, 2000);
-    if (!username) return res.status(400).json({ success: false, message: 'Username admin tidak tersedia.' });
-    if (req.body?.name !== undefined && !name) return res.status(400).json({ success: false, message: 'Nama tidak boleh kosong.' });
-    if (avatar_url && !/^https:\/\//i.test(avatar_url)) return res.status(400).json({ success: false, message: 'URL avatar harus HTTPS.' });
-    const updates = {};
-    if (req.body?.name !== undefined) updates.name = name;
-    if (req.body?.avatar_url !== undefined) updates.avatar_url = avatar_url;
-    if (!Object.keys(updates).length) return res.status(400).json({ success: false, message: 'Tidak ada perubahan profil.' });
-    const { data, error } = await supabaseAdmin.from('admins').update(updates)
-      .eq('username', username).select('id,username,name,role,created_at,avatar_url').maybeSingle();
-    if (error) {
-      console.error('PATCH /api/admins/me Supabase error:', error.message);
-      return res.status(502).json({ success: false, message: 'Gagal menyimpan profil admin.' });
-    }
-    if (!data) return res.status(404).json({ success: false, message: 'Profil belum ada di Supabase. Migrasikan data admin terlebih dahulu.' });
-    return res.json({ success: true, profile: data });
-  } catch (err) {
-    console.error('PATCH /api/admins/me gagal:', err.message);
-    return res.status(500).json({ success: false, message: 'Gagal menyimpan profil admin.' });
-  }
-});
-
 /* Profil admin saat ini. Owner UID allowlist boleh memiliki profil virtual sampai migrasi data selesai. */
 app.get('/api/admins/me', requireFirebaseAdmin, async (req, res) => {
   try {
@@ -622,7 +577,23 @@ app.patch('/api/admins/me', requireFirebaseAdmin, async (req, res) => {
       return res.status(502).json({ success: false, message: 'Gagal memeriksa profil admin di Supabase.' });
     }
     if (!existing) {
-      return res.status(409).json({ success: false, code: 'ADMIN_PROFILE_NOT_FOUND', message: 'Profil belum ada di Supabase. Migrasikan data admin terlebih dahulu.' });
+      if (req.verifiedAdmin.role !== 'owner') {
+        return res.status(409).json({ success: false, code: 'ADMIN_PROFILE_NOT_FOUND', message: 'Profil admin belum dimigrasikan ke Supabase.' });
+      }
+      // Owner yang sudah diverifikasi melalui Firebase UID allowlist boleh membuat metadata profilnya sendiri.
+      const ownerRow = {
+        username: req.verifiedAdmin.username,
+        name: name !== undefined ? name : (req.verifiedAdmin.name || req.verifiedAdmin.username),
+        role: 'owner',
+        avatar_url: avatar_url !== undefined ? (avatar_url || null) : null
+      };
+      const { data: created, error: createError } = await supabaseAdmin.from('admins')
+        .insert(ownerRow).select('id,username,name,role,created_at,avatar_url').single();
+      if (createError) {
+        console.error('PATCH /api/admins/me owner profile create error:', createError.message);
+        return res.status(502).json({ success: false, message: 'Profil owner belum ada dan belum bisa dibuat. Pastikan kolom password di tabel admins boleh NULL, atau siapkan migrasi metadata admin terlebih dahulu.' });
+      }
+      return res.json({ success: true, profile: created });
     }
     const patch = {};
     if (name !== undefined) patch.name = name;
