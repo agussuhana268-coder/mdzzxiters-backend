@@ -780,7 +780,7 @@ app.post('/api/activity', requireFirebaseAdmin, async (req, res) => {
   try {
     const type = String(req.body?.type || '').trim().slice(0, 40);
     const message = String(req.body?.text || '').trim().slice(0, 5000);
-    const actor = String(req.body?.admin || req.verifiedAdmin.username || req.verifiedAdmin.uid).trim().slice(0, 120);
+    const actor = String(req.verifiedAdmin.name || req.verifiedAdmin.username || req.verifiedAdmin.uid).trim().slice(0, 120);
     if (!type || !message) return res.status(400).json({ success: false, message: 'Tipe dan isi activity wajib diisi.' });
     const { data, error } = await supabaseAdmin.from('activity_log').insert({ type, text: message, admin: actor }).select('id,type,text,admin,created_at').single();
     if (error) {
