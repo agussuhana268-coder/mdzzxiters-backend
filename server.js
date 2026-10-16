@@ -127,9 +127,7 @@ function sendBrevoEmail(to, subject, html, text) {
 
 /* ══ APP ══ */
 const app = express();
-// Railway berada di depan aplikasi sebagai satu reverse-proxy hop.
-// Hanya percayai hop proxy terdekat agar req.ip mengambil alamat klien dari X-Forwarded-For.
-app.set('trust proxy', 1);
+// Railway public ingress mengatur X-Real-IP. Jangan menebak jumlah hop proxy lewat req.ip.
 
 /* CORS harus berjalan sebelum body parser agar preflight browser selalu mendapat header yang benar. */
 const corsOptions = {
@@ -1333,8 +1331,9 @@ app.post('/api/licenses/session', activationLimiter, async (req, res) => {
       });
     }
 
-    const forwardedFor = req.headers['x-forwarded-for'];
-    const rawClientIp = forwardedFor ? String(req.ip || '').trim() : '';
+    // Railway public ingress menimpa X-Real-IP dengan IP koneksi klien.
+    // Jangan gunakan req.ip/X-Forwarded-For karena jumlah hop Railway tidak tetap.
+    const rawClientIp = String(req.headers['x-real-ip'] || '').trim();
     const clientIp = rawClientIp.startsWith('::ffff:')
       ? rawClientIp.slice(7)
       : rawClientIp;
@@ -1344,10 +1343,10 @@ app.post('/api/licenses/session', activationLimiter, async (req, res) => {
       platform: 'nexus_android',
       online: true,
       last_seen: new Date().toISOString(),
-      ip_address: validClientIp
+      ...(validClientIp ? { ip_address: validClientIp } : {})
     };
     if (!validClientIp) {
-      console.warn('POST /api/licenses/session: IP klien tidak tersedia dari X-Forwarded-For; IP tidak diperbarui.');
+      console.warn('POST /api/licenses/session: header X-Real-IP tidak tersedia/valid; IP tidak diperbarui.');
     }
 
     let sessionResult;
