@@ -202,65 +202,9 @@ function legacySimpleHash(value) {
   return 'h_'+Math.abs(h).toString(36);
 }
 async function hashAdminPassword(password) {
-  const salt=crypto.randomBytes(16).toString('hex');
-  const key=await scryptAsync(password,salt,64);
-  return 'scrypt
-
-  // Emergency migration path: explicit server-side UID allowlist avoids Firestore reads.
-  // Configure ADMIN_UID_ALLOWLIST in Railway with comma-separated trusted Firebase UIDs.
-  const allowedOwnerUids = (process.env.ADMIN_UID_ALLOWLIST || '')
-    .split(',')
-    .map((uid) => uid.trim())
-    .filter(Boolean);
-
-  if (allowedOwnerUids.includes(decoded.uid)) {
-    const email = String(decoded.email || '');
-    req.verifiedAdmin = {
-      uid: decoded.uid,
-      username: email ? email.split('@')[0] : decoded.uid,
-      name: decoded.name || email || 'Owner',
-      role: 'owner'
-    };
-    return next();
-  }
-
-  const emailUsername = String(decoded.email || '').split('@')[0].trim().toLowerCase();
-  if (!emailUsername) {
-    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
-  }
-  let adminData;
-  try {
-    const { data, error } = await supabaseAdmin.from('admins')
-      .select('id,username,name,role,created_at,avatar_url')
-      .eq('username', emailUsername).maybeSingle();
-    if (error) throw error;
-    adminData = data;
-  } catch (err) {
-    console.error('[Auth] Gagal membaca admin dari Supabase:', err.code || err.message);
-    return res.status(503).json({
-      success:false, code:'ADMIN_STORE_UNAVAILABLE',
-      message:'Verifikasi admin belum tersedia di Supabase. Pastikan profil admin sudah dimigrasikan.'
-    });
-  }
-  if (!adminData) {
-    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
-  }
-  if (!['owner', 'admin'].includes(adminData.role)) {
-    return res.status(403).json({
-      success: false,
-      code: 'ADMIN_ROLE_DENIED',
-      message: 'Akses admin ditolak.'
-    });
-  }
-
-  req.verifiedAdmin = {
-    uid: decoded.uid,
-    username: adminData.username,
-    name: adminData.name,
-    role: adminData.role
-  };
-
-  next();
+  const salt = crypto.randomBytes(16).toString('hex');
+  const key = await scryptAsync(String(password), salt, 64);
+  return 'scrypt$' + salt + '$' + Buffer.from(key).toString('hex');
 }
 
 /* ══ GET /download — Halaman redirect iOS-friendly ══ */
