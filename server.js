@@ -1245,8 +1245,45 @@ async function requireFirebaseAdmin(req, res, next) {
   const bearer=header.slice(7).trim();
   const session=verifyAdminSession(bearer);
   if(session){
-    req.verifiedAdmin={uid:session.uid,username:session.username,name:session.name||session.username,role:session.role,authMode:'backend'};
-    return next();
+    // Sesi bertanda tangan tidak otomatis tetap sah setelah admin dihapus/dinonaktifkan.
+    // Cocokkan setiap permintaan dengan profil admin yang masih ada di Supabase.
+    try {
+      const { data: activeAdmin, error: sessionLookupError } = await supabaseAdmin
+        .from('admins')
+        .select('id,username,name,role')
+        .eq('username', String(session.username || '').trim().toLowerCase())
+        .maybeSingle();
+      if (sessionLookupError) {
+        console.error('[Auth] Gagal memeriksa sesi admin backend:', sessionLookupError.code || sessionLookupError.message);
+        return res.status(503).set('Cache-Control','no-store').json({
+          success:false, code:'ADMIN_STORE_UNAVAILABLE',
+          message:'Verifikasi sesi admin sementara tidak tersedia.'
+        });
+      }
+      if (!activeAdmin ||
+          String(activeAdmin.id) !== String(session.uid) ||
+          !['owner','admin'].includes(activeAdmin.role) ||
+          activeAdmin.role !== session.role) {
+        return res.status(403).set('Cache-Control','no-store').json({
+          success:false, code:'ADMIN_SESSION_REVOKED',
+          message:'Sesi admin sudah tidak berlaku. Silakan login ulang.'
+        });
+      }
+      req.verifiedAdmin={
+        uid:String(activeAdmin.id),
+        username:activeAdmin.username,
+        name:activeAdmin.name||activeAdmin.username,
+        role:activeAdmin.role,
+        authMode:'backend'
+      };
+      return next();
+    } catch (err) {
+      console.error('[Auth] Pemeriksaan sesi admin backend gagal:', err.message);
+      return res.status(503).set('Cache-Control','no-store').json({
+        success:false, code:'ADMIN_STORE_UNAVAILABLE',
+        message:'Verifikasi sesi admin sementara tidak tersedia.'
+      });
+    }
   }
   let decoded;
   try {
