@@ -124,7 +124,15 @@ function sendBrevoEmail(to, subject, html, text) {
 /* ══ APP ══ */
 const app = express();
 
-app.use(express.json());
+/* CORS harus berjalan sebelum body parser agar preflight browser selalu mendapat header yang benar. */
+const corsOptions = {
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'X-Admin-Key', 'Authorization'],
+  optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 const activationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -146,8 +154,6 @@ const upload = multer({
   }
 });
 
-app.use(cors({ origin: '*', methods: ['GET','POST','PUT','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','X-Admin-Key','Authorization'] }));
-app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
