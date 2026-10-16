@@ -453,12 +453,13 @@ app.use((err, _, res, __) => {
 });
 
 app.get('/api/admin/verify', requireFirebaseAdmin, (req, res) => {
-  res.json({
+  res.set('Cache-Control', 'no-store').json({
     success: true,
     message: 'Firebase admin berhasil diverifikasi',
     admin: {
       uid: req.verifiedAdmin.uid,
       username: req.verifiedAdmin.username,
+      name: req.verifiedAdmin.name || req.verifiedAdmin.username,
       role: req.verifiedAdmin.role
     }
   });
