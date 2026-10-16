@@ -1344,7 +1344,7 @@ app.post('/api/licenses/session', activationLimiter, async (req, res) => {
       platform: 'nexus_android',
       online: true,
       last_seen: new Date().toISOString(),
-      ...(validClientIp ? { ip_address: validClientIp } : {})
+      ip_address: validClientIp
     };
     if (!validClientIp) {
       console.warn('POST /api/licenses/session: IP klien tidak tersedia dari X-Forwarded-For; IP tidak diperbarui.');
