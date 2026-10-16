@@ -156,6 +156,14 @@ const upload = multer({
       ? cb(null, true) : cb(new Error('Hanya .zip'));
   }
 });
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 3 * 1024 * 1024 },
+  fileFilter: (_, file, cb) => {
+    ['image/jpeg','image/png','image/webp','image/gif'].includes(file.mimetype)
+      ? cb(null, true) : cb(new Error('Foto harus JPG, PNG, WEBP, atau GIF.'));
+  }
+});
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -568,6 +576,37 @@ app.post('/api/admin/login', adminLoginLimiter, async (req,res)=>{
     const token=signAdminSession({uid:String(data.id),username:data.username,name:data.name||data.username,role:data.role,iat:now,exp:now+8*60*60});
     return res.set('Cache-Control','no-store').json({success:true,token,expires_in:28800,admin:{id:data.id,username:data.username,name:data.name||data.username,role:data.role,created_at:data.created_at||null,avatar_url:data.avatar_url||null}});
   }catch(err){console.error('Admin login failed:',err.message);return res.status(500).json({success:false,message:'Login admin gagal.'});}
+});
+
+/* Upload avatar lewat backend agar Supabase service key tidak pernah berada di browser. */
+app.post('/api/admins/me/avatar', requireFirebaseAdmin, avatarUpload.single('file'), async (req,res)=>{
+  try{
+    if(!req.file)return res.status(400).json({success:false,message:'Pilih file foto terlebih dahulu.'});
+    const ext=({'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif'})[req.file.mimetype];
+    if(!ext)return res.status(400).json({success:false,message:'Format foto tidak didukung.'});
+    const bucket=String(process.env.AVATAR_BUCKET||'avatar').trim();
+    const objectPath='avatars/'+String(req.verifiedAdmin.uid).replace(/[^a-zA-Z0-9_-]/g,'_')+'.'+ext;
+    const {error:uploadError}=await supabaseAdmin.storage.from(bucket).upload(objectPath,req.file.buffer,{contentType:req.file.mimetype,upsert:true,cacheControl:'3600'});
+    if(uploadError){
+      console.error('Avatar upload Supabase error:',uploadError.message);
+      return res.status(502).json({success:false,message:'Gagal mengunggah foto. Periksa bucket Storage avatar di Supabase.'});
+    }
+    const {data:urlData}=supabaseAdmin.storage.from(bucket).getPublicUrl(objectPath);
+    const avatar_url=urlData?.publicUrl;
+    if(!avatar_url)return res.status(502).json({success:false,message:'URL foto tidak berhasil dibuat.'});
+    const {data:existing,error:findError}=await supabaseAdmin.from('admins').select('id').eq('username',req.verifiedAdmin.username).maybeSingle();
+    if(findError){console.error('Avatar profile lookup:',findError.message);return res.status(502).json({success:false,message:'Foto terunggah tetapi profil gagal diperbarui.'});}
+    if(existing){
+      const {error:updateError}=await supabaseAdmin.from('admins').update({avatar_url}).eq('id',existing.id);
+      if(updateError){console.error('Avatar profile update:',updateError.message);return res.status(502).json({success:false,message:'Foto terunggah tetapi profil gagal diperbarui.'});}
+    }else if(req.verifiedAdmin.role==='owner'){
+      const {error:createError}=await supabaseAdmin.from('admins').insert({username:req.verifiedAdmin.username,name:req.verifiedAdmin.name||req.verifiedAdmin.username,role:'owner',avatar_url});
+      if(createError){console.error('Avatar owner profile create:',createError.message);return res.status(502).json({success:false,message:'Foto terunggah, tetapi profil owner belum dapat dibuat. Periksa apakah kolom password mengizinkan NULL.'});}
+    }else{
+      return res.status(409).json({success:false,code:'ADMIN_PROFILE_NOT_FOUND',message:'Profil admin belum dimigrasikan ke Supabase.'});
+    }
+    return res.json({success:true,avatar_url});
+  }catch(err){console.error('POST /api/admins/me/avatar failed:',err.message);return res.status(500).json({success:false,message:'Gagal memproses foto profil.'});}
 });
 
 /* Profil admin saat ini. Owner UID allowlist boleh memiliki profil virtual sampai migrasi data selesai. */
