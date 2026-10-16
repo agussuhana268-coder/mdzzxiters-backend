@@ -526,6 +526,55 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
   }
 });
 
+/* Data proyek panel admin tersimpan di Supabase. */
+app.get('/api/projects', requireFirebaseAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('projects').select('id,name,created_at').order('name', { ascending: true }).limit(500);
+    if (error) {
+      console.error('GET /api/projects Supabase error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal membaca proyek dari Supabase.' });
+    }
+    return res.set('Cache-Control', 'no-store').json({ success: true, rows: data || [] });
+  } catch (err) {
+    console.error('GET /api/projects gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal memuat proyek.' });
+  }
+});
+
+app.post('/api/projects', requireFirebaseAdmin, async (req, res) => {
+  try {
+    if (req.verifiedAdmin.role !== 'owner') return res.status(403).json({ success: false, message: 'Hanya owner yang dapat mengelola proyek.' });
+    const name = String((req.body && req.body.name) || '').trim().toUpperCase();
+    if (!name || name.length > 80 || name === 'PRIVATE EXTREME') return res.status(400).json({ success: false, message: 'Nama proyek tidak valid.' });
+    const { data, error } = await supabaseAdmin.from('projects').insert({ name }).select('id,name,created_at').single();
+    if (error) {
+      if (error.code === '23505') return res.status(409).json({ success: false, message: 'Proyek sudah ada.' });
+      console.error('POST /api/projects Supabase error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal menyimpan proyek ke Supabase.' });
+    }
+    return res.status(201).json({ success: true, project: data });
+  } catch (err) {
+    console.error('POST /api/projects gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal membuat proyek.' });
+  }
+});
+
+app.delete('/api/projects/:id', requireFirebaseAdmin, async (req, res) => {
+  try {
+    if (req.verifiedAdmin.role !== 'owner') return res.status(403).json({ success: false, message: 'Hanya owner yang dapat mengelola proyek.' });
+    const { data, error } = await supabaseAdmin.from('projects').delete().eq('id', req.params.id).select('id');
+    if (error) {
+      console.error('DELETE /api/projects Supabase error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal menghapus proyek.' });
+    }
+    if (!data || !data.length) return res.status(404).json({ success: false, message: 'Proyek tidak ditemukan.' });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('DELETE /api/projects gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal menghapus proyek.' });
+  }
+});
+
 /* Sesi dashboard dibaca dari Supabase, bukan Firestore. */
 app.get('/api/sessions/status', requireFirebaseAdmin, async (_req, res) => {
   try {
