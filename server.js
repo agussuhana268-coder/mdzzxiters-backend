@@ -160,69 +160,80 @@ function requireAuth(req, res, next) {
 async function requireFirebaseAdmin(req, res, next) {
   const header = req.headers.authorization || '';
 
-    if (!header.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Token autentikasi diperlukan'
-      });
-    }
+  if (!header.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      message: 'Token autentikasi diperlukan'
+    });
+  }
 
-    const idToken = header.slice(7).trim();
-    let decoded;
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(header.slice(7).trim());
+  } catch (err) {
+    console.warn('[Auth] Firebase ID token ditolak:', err.code || err.message);
+    return res.status(401).json({
+      success: false,
+      code: 'INVALID_FIREBASE_TOKEN',
+      message: 'Token Firebase tidak valid atau kedaluwarsa. Silakan login ulang.'
+    });
+  }
 
-    // Pisahkan kegagalan verifikasi token dari kegagalan membaca Firestore.
-    try {
-      decoded = await admin.auth().verifyIdToken(idToken);
-    } catch (err) {
-      console.warn('[Auth] Firebase ID token ditolak:', err.code || err.message);
-      return res.status(401).json({
-        success: false,
-        code: 'INVALID_FIREBASE_TOKEN',
-        message: 'Token Firebase tidak valid atau kedaluwarsa. Silakan login ulang.'
-      });
-    }
+  // Emergency migration path: explicit server-side UID allowlist avoids Firestore reads.
+  // Configure ADMIN_UID_ALLOWLIST in Railway with comma-separated trusted Firebase UIDs.
+  const allowedOwnerUids = (process.env.ADMIN_UID_ALLOWLIST || '')
+    .split(',')
+    .map((uid) => uid.trim())
+    .filter(Boolean);
 
-    let adminDoc;
-    try {
-      adminDoc = await adminDb
-        .collection('admins')
-        .doc(decoded.uid)
-        .get();
-    } catch (err) {
-      console.error('[Auth] Gagal membaca dokumen admin di Firestore:', err.code || err.message);
-      return res.status(503).json({
-        success: false,
-        code: 'ADMIN_STORE_UNAVAILABLE',
-        message: 'Layanan verifikasi admin sedang tidak tersedia (Firestore). Periksa kuota/koneksi lalu coba lagi.'
-      });
-    }
-
-    if (!adminDoc.exists) {
-      return res.status(403).json({
-        success: false,
-        code: 'NOT_ADMIN',
-        message: 'Akun Firebase ini belum terdaftar sebagai admin.'
-      });
-    }
-
-    const adminData = adminDoc.data() || {};
-
-    if (!['owner', 'admin'].includes(adminData.role)) {
-      return res.status(403).json({
-        success: false,
-        code: 'ADMIN_ROLE_DENIED',
-        message: 'Akses admin ditolak.'
-      });
-    }
-
+  if (allowedOwnerUids.includes(decoded.uid)) {
+    const email = String(decoded.email || '');
     req.verifiedAdmin = {
       uid: decoded.uid,
-      username: adminData.username,
-      name: adminData.name,
-      role: adminData.role
+      username: email ? email.split('@')[0] : decoded.uid,
+      name: decoded.name || email || 'Owner',
+      role: 'owner'
     };
+    return next();
+  }
 
-    next();
+  let adminDoc;
+  try {
+    adminDoc = await adminDb.collection('admins').doc(decoded.uid).get();
+  } catch (err) {
+    console.error('[Auth] Gagal membaca dokumen admin di Firestore:', err.code || err.message);
+    return res.status(503).json({
+      success: false,
+      code: 'ADMIN_STORE_UNAVAILABLE',
+      message: 'Verifikasi admin belum dimigrasikan untuk akun ini. Atur ADMIN_UID_ALLOWLIST di backend atau periksa kuota Firestore.'
+    });
+  }
+
+  if (!adminDoc.exists) {
+    return res.status(403).json({
+      success: false,
+      code: 'NOT_ADMIN',
+      message: 'Akun Firebase ini belum terdaftar sebagai admin.'
+    });
+  }
+
+  const adminData = adminDoc.data() || {};
+  if (!['owner', 'admin'].includes(adminData.role)) {
+    return res.status(403).json({
+      success: false,
+      code: 'ADMIN_ROLE_DENIED',
+      message: 'Akses admin ditolak.'
+    });
+  }
+
+  req.verifiedAdmin = {
+    uid: decoded.uid,
+    username: adminData.username,
+    name: adminData.name,
+    role: adminData.role
+  };
+
+  next();
 }
 
 /* ══ GET /download — Halaman redirect iOS-friendly ══ */
