@@ -715,7 +715,7 @@ app.post('/api/activity', requireFirebaseAdmin, async (req, res) => {
       console.error('POST /api/activity Supabase error:', error.message);
       return res.status(502).json({ success: false, message: 'Gagal menyimpan activity log ke Supabase. Pastikan kolom tabel activity_log sesuai.' });
     }
-    return res.status(201).json({ success: true, activity: data });
+    return res.status(201).set('Cache-Control', 'no-store').json({ success: true, activity: data });
   } catch (err) {
     console.error('POST /api/activity gagal:', err.message);
     return res.status(500).json({ success: false, message: 'Gagal menyimpan activity log.' });
