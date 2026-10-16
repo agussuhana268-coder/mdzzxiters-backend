@@ -926,16 +926,41 @@ app.delete('/api/projects/:id', requireFirebaseAdmin, async (req, res) => {
 /* Sesi dashboard dibaca dari Supabase, bukan Firestore. */
 app.get('/api/sessions/status', requireFirebaseAdmin, async (_req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('sessions')
-      .select('id,key,platform,online,last_seen,ip_address,last_seen_ip_at')
-      .order('last_seen', { ascending: false })
-      .limit(5000);
-    if (error) {
-      console.error('GET /api/sessions/status Supabase error:', error.message);
+    const onlineSince = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const [sessionsResult, onlineResult] = await Promise.all([
+      supabaseAdmin
+        .from('sessions')
+        .select('id,key,platform,online,last_seen,ip_address,last_seen_ip_at', { count: 'exact' })
+        .order('last_seen', { ascending: false })
+        .limit(1000),
+      supabaseAdmin
+        .from('sessions')
+        .select('id', { count: 'exact', head: true })
+        .eq('online', true)
+        .gte('last_seen', onlineSince)
+    ]);
+
+    if (sessionsResult.error) {
+      console.error('GET /api/sessions/status Supabase error:', sessionsResult.error.message);
       return res.status(502).json({ success: false, message: 'Gagal membaca sesi dari Supabase.' });
     }
-    return res.set('Cache-Control', 'no-store').json({ success: true, count: (data || []).length, rows: data || [] });
+    if (onlineResult.error) {
+      console.error('GET /api/sessions/status online count error:', onlineResult.error.message);
+      return res.status(502).json({ success: false, message: 'Gagal menghitung sesi online dari Supabase.' });
+    }
+
+    const rows = sessionsResult.data || [];
+    const totalCount = Number.isFinite(sessionsResult.count) ? sessionsResult.count : rows.length;
+    const onlineCount = Number.isFinite(onlineResult.count) ? onlineResult.count : 0;
+
+    return res.set('Cache-Control', 'no-store').json({
+      success: true,
+      count: rows.length,
+      total_count: totalCount,
+      online_count: onlineCount,
+      online_window_minutes: 15,
+      rows
+    });
   } catch (err) {
     console.error('GET /api/sessions/status gagal:', err.message);
     return res.status(500).json({ success: false, message: 'Gagal memuat sesi.' });
