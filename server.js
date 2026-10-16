@@ -465,6 +465,26 @@ app.get('/api/admin/verify', requireFirebaseAdmin, (req, res) => {
 });
 
 /* Refresh status lisensi untuk panel admin. Supabase service key hanya di backend. */
+
+/* Riwayat perubahan IP hanya dibaca melalui backend terautentikasi. */
+app.get('/api/ip-history', requireFirebaseAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('ip_history')
+      .select('id,license_key,ip_address,device_id,created_at')
+      .order('created_at', { ascending: false })
+      .limit(300);
+    if (error) {
+      console.error('GET /api/ip-history Supabase error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal memuat riwayat IP dari Supabase.' });
+    }
+    return res.set('Cache-Control', 'no-store').json({ success: true, rows: data || [] });
+  } catch (err) {
+    console.error('GET /api/ip-history gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal memuat riwayat IP.' });
+  }
+});
+
 app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
   try {
     const { data, error } = await supabaseAdmin
