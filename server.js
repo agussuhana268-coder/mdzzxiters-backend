@@ -498,7 +498,7 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
   try {
     const { data, error } = await supabaseAdmin
       .from('licenses')
-      .select('key,active,used,device_id,status')
+      .select('key,project,active,used,device_id,status,generated_by,created_at,expires_at,used_at,last_seen,current_ip,first_ip,last_ip,nexus_id')
       .order('key', { ascending: true })
       .limit(5000);
 
@@ -523,6 +523,25 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
       success: false,
       message: 'Gagal memuat status lisensi dari backend.'
     });
+  }
+});
+
+/* Sesi dashboard dibaca dari Supabase, bukan Firestore. */
+app.get('/api/sessions/status', requireFirebaseAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('sessions')
+      .select('id,key,platform,online,last_seen,ip_address,last_seen_ip_at')
+      .order('last_seen', { ascending: false })
+      .limit(5000);
+    if (error) {
+      console.error('GET /api/sessions/status Supabase error:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal membaca sesi dari Supabase.' });
+    }
+    return res.set('Cache-Control', 'no-store').json({ success: true, count: (data || []).length, rows: data || [] });
+  } catch (err) {
+    console.error('GET /api/sessions/status gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Gagal memuat sesi.' });
   }
 });
 
