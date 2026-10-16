@@ -603,10 +603,10 @@ app.post('/api/admin/owner-password', requireFirebaseAdmin, async (req, res) => 
     }
 
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (password.length < 12 || password.length > 256) {
+    if (password.length < 8 || password.length > 256) {
       return res.status(400).set('Cache-Control', 'no-store').json({
         success: false,
-        message: 'Password dashboard harus 12–256 karakter.'
+        message: 'Password dashboard harus 8–256 karakter.'
       });
     }
 
