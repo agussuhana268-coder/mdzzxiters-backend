@@ -884,6 +884,38 @@ app.post('/api/licenses/mark-used', requireFirebaseAdmin, async (req, res) => {
   }
 });
 
+
+/* Sinkronisasi lisensi lama melalui backend; tidak menerima kredensial Supabase dari browser. */
+app.post('/api/licenses/sync', requireFirebaseAdmin, async (req, res) => {
+  try {
+    const rows = req.body && req.body.rows;
+    if (!Array.isArray(rows) || rows.length === 0 || rows.length > 500)
+      return res.status(400).json({ success: false, message: 'Data lisensi tidak valid (maksimal 500).' });
+    const cleanRows = rows.map((row) => ({
+      key: String(row.key || '').trim(),
+      project: String(row.project || '').trim(),
+      active: row.active !== false,
+      used: row.used === true,
+      device_id: row.device_id || null,
+      generated_by: String(row.generated_by || req.verifiedAdmin.username || req.verifiedAdmin.uid),
+      expires_at: row.expires_at || null,
+      used_at: row.used_at || null,
+      status: row.active === false ? 'revoked' : (row.used === true ? 'used' : 'unused')
+    }));
+    if (cleanRows.some((row) => !row.key || !row.project))
+      return res.status(400).json({ success: false, message: 'Setiap lisensi wajib memiliki key dan project.' });
+    const { error } = await supabaseAdmin.from('licenses').upsert(cleanRows, { onConflict: 'key' });
+    if (error) {
+      console.error('Sinkronisasi lisensi gagal:', error.message);
+      return res.status(502).json({ success: false, message: 'Gagal menyinkronkan lisensi ke Supabase.' });
+    }
+    return res.json({ success: true, count: cleanRows.length });
+  } catch (err) {
+    console.error('POST /api/licenses/sync gagal:', err.message);
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server.' });
+  }
+});
+
 app.post('/api/licenses/revoke', requireFirebaseAdmin, async (req, res) => {
   try {
     const key = String(req.body?.key || '').trim();
