@@ -452,6 +452,78 @@ app.use((err, _, res, __) => {
   res.status(500).json({ success: false, message: err.message });
 });
 
+app.post('/api/admin/session', requireFirebaseAdmin, async (req, res) => {
+  try {
+    const username = String(req.verifiedAdmin?.username || '')
+      .trim()
+      .toLowerCase();
+
+    if (!username) {
+      return res.status(403).json({
+        success: false,
+        message: 'Profil admin tidak ditemukan',
+        code: 'ADMIN_PROFILE_REQUIRED'
+      });
+    }
+
+    const { data: activeAdmin, error } = await supabaseAdmin
+      .from('admins')
+      .select('id,username,name,role,created_at,avatar_url')
+      .eq('username', username)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Admin session profile lookup failed:', error);
+      return res.status(503).json({
+        success: false,
+        message: 'Gagal memverifikasi profil admin'
+      });
+    }
+
+    if (
+      !activeAdmin ||
+      !['owner', 'admin'].includes(activeAdmin.role) ||
+      activeAdmin.role !== req.verifiedAdmin.role
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Akun admin tidak aktif atau role tidak cocok',
+        code: 'ADMIN_ACCESS_REVOKED'
+      });
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const token = signAdminSession({
+      uid: String(activeAdmin.id),
+      username: activeAdmin.username,
+      name: activeAdmin.name || activeAdmin.username,
+      role: activeAdmin.role,
+      iat: now,
+      exp: now + 8 * 60 * 60
+    });
+
+    return res.set('Cache-Control', 'no-store').json({
+      success: true,
+      token,
+      expires_in: 28800,
+      admin: {
+        id: activeAdmin.id,
+        username: activeAdmin.username,
+        name: activeAdmin.name || activeAdmin.username,
+        role: activeAdmin.role,
+        created_at: activeAdmin.created_at || null,
+        avatar_url: activeAdmin.avatar_url || null
+      }
+    });
+  } catch (err) {
+    console.error('Admin session exchange failed:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal membuat sesi admin'
+    });
+  }
+});
+
 app.get('/api/admin/verify', requireFirebaseAdmin, (req, res) => {
   res.set('Cache-Control', 'no-store').json({
     success: true,
