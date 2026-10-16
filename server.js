@@ -12,6 +12,7 @@ const multer  = require('multer');
 const path    = require('path');
 const https   = require('https');
 const crypto  = require('crypto');
+const net     = require('net');
 const { promisify } = require('util');
 const scryptAsync = promisify(crypto.scrypt);
 const { createClient } = require('@supabase/supabase-js');
@@ -126,6 +127,9 @@ function sendBrevoEmail(to, subject, html, text) {
 
 /* ══ APP ══ */
 const app = express();
+// Railway berada di depan aplikasi sebagai satu reverse-proxy hop.
+// Hanya percayai hop proxy terdekat agar req.ip mengambil alamat klien dari X-Forwarded-For.
+app.set('trust proxy', 1);
 
 /* CORS harus berjalan sebelum body parser agar preflight browser selalu mendapat header yang benar. */
 const corsOptions = {
@@ -1329,11 +1333,22 @@ app.post('/api/licenses/session', activationLimiter, async (req, res) => {
       });
     }
 
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const rawClientIp = forwardedFor ? String(req.ip || '').trim() : '';
+    const clientIp = rawClientIp.startsWith('::ffff:')
+      ? rawClientIp.slice(7)
+      : rawClientIp;
+    const validClientIp = net.isIP(clientIp) ? clientIp : null;
+
     const sessionData = {
       platform: 'nexus_android',
       online: true,
-      last_seen: new Date().toISOString()
+      last_seen: new Date().toISOString(),
+      ...(validClientIp ? { ip_address: validClientIp } : {})
     };
+    if (!validClientIp) {
+      console.warn('POST /api/licenses/session: IP klien tidak tersedia dari X-Forwarded-For; IP tidak diperbarui.');
+    }
 
     let sessionResult;
 
