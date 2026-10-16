@@ -529,10 +529,20 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
 /* Data proyek panel admin tersimpan di Supabase. */
 app.get('/api/projects', requireFirebaseAdmin, async (_req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('projects').select('id,name,created_at').order('name', { ascending: true }).limit(500);
+    let { data, error } = await supabaseAdmin.from('projects').select('id,name,created_at').order('name', { ascending: true }).limit(500);
     if (error) {
       console.error('GET /api/projects Supabase error:', error.message);
       return res.status(502).json({ success: false, message: 'Gagal membaca proyek dari Supabase.' });
+    }
+    /* Seed daftar proyek standar hanya jika tabel benar-benar kosong. */
+    if (!data || data.length === 0) {
+      const defaults = ['INSANITY MAX','CYBER PRO','BLAZE','ATOMIC PRO','ZX PRIVATE','ZX CORE','ZX EXCLUSIVE','ZX APEX','VORTEX'];
+      const seeded = await supabaseAdmin.from('projects').insert(defaults.map(name => ({ name }))).select('id,name,created_at');
+      if (seeded.error) {
+        console.error('Seed projects Supabase error:', seeded.error.message);
+        return res.status(502).json({ success: false, message: 'Tabel proyek kosong dan gagal diisi. Periksa tabel projects di Supabase.' });
+      }
+      data = seeded.data || [];
     }
     return res.set('Cache-Control', 'no-store').json({ success: true, rows: data || [] });
   } catch (err) {
