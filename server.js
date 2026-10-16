@@ -72,7 +72,7 @@ if (!admin.apps.length) {
   });
 }
 
-const adminDb = admin.firestore();
+// Admin metadata and authorization now live in Supabase; Firebase Admin remains for ID-token verification.
 
 /* ══ BREVO HTTP API ══ */
 function sendBrevoEmail(to, subject, html, text) {
@@ -224,27 +224,27 @@ async function hashAdminPassword(password) {
     return next();
   }
 
-  let adminDoc;
+  const emailUsername = String(decoded.email || '').split('@')[0].trim().toLowerCase();
+  if (!emailUsername) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
+  }
+  let adminData;
   try {
-    adminDoc = await adminDb.collection('admins').doc(decoded.uid).get();
+    const { data, error } = await supabaseAdmin.from('admins')
+      .select('id,username,name,role,created_at,avatar_url')
+      .eq('username', emailUsername).maybeSingle();
+    if (error) throw error;
+    adminData = data;
   } catch (err) {
-    console.error('[Auth] Gagal membaca dokumen admin di Firestore:', err.code || err.message);
+    console.error('[Auth] Gagal membaca admin dari Supabase:', err.code || err.message);
     return res.status(503).json({
-      success: false,
-      code: 'ADMIN_STORE_UNAVAILABLE',
-      message: 'Verifikasi admin belum dimigrasikan untuk akun ini. Atur ADMIN_UID_ALLOWLIST di backend atau periksa kuota Firestore.'
+      success:false, code:'ADMIN_STORE_UNAVAILABLE',
+      message:'Verifikasi admin belum tersedia di Supabase. Pastikan profil admin sudah dimigrasikan.'
     });
   }
-
-  if (!adminDoc.exists) {
-    return res.status(403).json({
-      success: false,
-      code: 'NOT_ADMIN',
-      message: 'Akun Firebase ini belum terdaftar sebagai admin.'
-    });
+  if (!adminData) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
   }
-
-  const adminData = adminDoc.data() || {};
   if (!['owner', 'admin'].includes(adminData.role)) {
     return res.status(403).json({
       success: false,
@@ -1215,27 +1215,27 @@ app.listen(PORT, () => {
     return next();
   }
 
-  let adminDoc;
+  const emailUsername = String(decoded.email || '').split('@')[0].trim().toLowerCase();
+  if (!emailUsername) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
+  }
+  let adminData;
   try {
-    adminDoc = await adminDb.collection('admins').doc(decoded.uid).get();
+    const { data, error } = await supabaseAdmin.from('admins')
+      .select('id,username,name,role,created_at,avatar_url')
+      .eq('username', emailUsername).maybeSingle();
+    if (error) throw error;
+    adminData = data;
   } catch (err) {
-    console.error('[Auth] Gagal membaca dokumen admin di Firestore:', err.code || err.message);
+    console.error('[Auth] Gagal membaca admin dari Supabase:', err.code || err.message);
     return res.status(503).json({
-      success: false,
-      code: 'ADMIN_STORE_UNAVAILABLE',
-      message: 'Verifikasi admin belum dimigrasikan untuk akun ini. Atur ADMIN_UID_ALLOWLIST di backend atau periksa kuota Firestore.'
+      success:false, code:'ADMIN_STORE_UNAVAILABLE',
+      message:'Verifikasi admin belum tersedia di Supabase. Pastikan profil admin sudah dimigrasikan.'
     });
   }
-
-  if (!adminDoc.exists) {
-    return res.status(403).json({
-      success: false,
-      code: 'NOT_ADMIN',
-      message: 'Akun Firebase ini belum terdaftar sebagai admin.'
-    });
+  if (!adminData) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
   }
-
-  const adminData = adminDoc.data() || {};
   if (!['owner', 'admin'].includes(adminData.role)) {
     return res.status(403).json({
       success: false,
@@ -2137,27 +2137,27 @@ async function verifyAdminPassword(password, stored) {
     return next();
   }
 
-  let adminDoc;
+  const emailUsername = String(decoded.email || '').split('@')[0].trim().toLowerCase();
+  if (!emailUsername) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
+  }
+  let adminData;
   try {
-    adminDoc = await adminDb.collection('admins').doc(decoded.uid).get();
+    const { data, error } = await supabaseAdmin.from('admins')
+      .select('id,username,name,role,created_at,avatar_url')
+      .eq('username', emailUsername).maybeSingle();
+    if (error) throw error;
+    adminData = data;
   } catch (err) {
-    console.error('[Auth] Gagal membaca dokumen admin di Firestore:', err.code || err.message);
+    console.error('[Auth] Gagal membaca admin dari Supabase:', err.code || err.message);
     return res.status(503).json({
-      success: false,
-      code: 'ADMIN_STORE_UNAVAILABLE',
-      message: 'Verifikasi admin belum dimigrasikan untuk akun ini. Atur ADMIN_UID_ALLOWLIST di backend atau periksa kuota Firestore.'
+      success:false, code:'ADMIN_STORE_UNAVAILABLE',
+      message:'Verifikasi admin belum tersedia di Supabase. Pastikan profil admin sudah dimigrasikan.'
     });
   }
-
-  if (!adminDoc.exists) {
-    return res.status(403).json({
-      success: false,
-      code: 'NOT_ADMIN',
-      message: 'Akun Firebase ini belum terdaftar sebagai admin.'
-    });
+  if (!adminData) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
   }
-
-  const adminData = adminDoc.data() || {};
   if (!['owner', 'admin'].includes(adminData.role)) {
     return res.status(403).json({
       success: false,
@@ -3056,27 +3056,27 @@ app.listen(PORT, () => {
     return next();
   }
 
-  let adminDoc;
+  const emailUsername = String(decoded.email || '').split('@')[0].trim().toLowerCase();
+  if (!emailUsername) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
+  }
+  let adminData;
   try {
-    adminDoc = await adminDb.collection('admins').doc(decoded.uid).get();
+    const { data, error } = await supabaseAdmin.from('admins')
+      .select('id,username,name,role,created_at,avatar_url')
+      .eq('username', emailUsername).maybeSingle();
+    if (error) throw error;
+    adminData = data;
   } catch (err) {
-    console.error('[Auth] Gagal membaca dokumen admin di Firestore:', err.code || err.message);
+    console.error('[Auth] Gagal membaca admin dari Supabase:', err.code || err.message);
     return res.status(503).json({
-      success: false,
-      code: 'ADMIN_STORE_UNAVAILABLE',
-      message: 'Verifikasi admin belum dimigrasikan untuk akun ini. Atur ADMIN_UID_ALLOWLIST di backend atau periksa kuota Firestore.'
+      success:false, code:'ADMIN_STORE_UNAVAILABLE',
+      message:'Verifikasi admin belum tersedia di Supabase. Pastikan profil admin sudah dimigrasikan.'
     });
   }
-
-  if (!adminDoc.exists) {
-    return res.status(403).json({
-      success: false,
-      code: 'NOT_ADMIN',
-      message: 'Akun Firebase ini belum terdaftar sebagai admin.'
-    });
+  if (!adminData) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
   }
-
-  const adminData = adminDoc.data() || {};
   if (!['owner', 'admin'].includes(adminData.role)) {
     return res.status(403).json({
       success: false,
@@ -4001,27 +4001,27 @@ async function requireFirebaseAdmin(req, res, next) {
     return next();
   }
 
-  let adminDoc;
+  const emailUsername = String(decoded.email || '').split('@')[0].trim().toLowerCase();
+  if (!emailUsername) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
+  }
+  let adminData;
   try {
-    adminDoc = await adminDb.collection('admins').doc(decoded.uid).get();
+    const { data, error } = await supabaseAdmin.from('admins')
+      .select('id,username,name,role,created_at,avatar_url')
+      .eq('username', emailUsername).maybeSingle();
+    if (error) throw error;
+    adminData = data;
   } catch (err) {
-    console.error('[Auth] Gagal membaca dokumen admin di Firestore:', err.code || err.message);
+    console.error('[Auth] Gagal membaca admin dari Supabase:', err.code || err.message);
     return res.status(503).json({
-      success: false,
-      code: 'ADMIN_STORE_UNAVAILABLE',
-      message: 'Verifikasi admin belum dimigrasikan untuk akun ini. Atur ADMIN_UID_ALLOWLIST di backend atau periksa kuota Firestore.'
+      success:false, code:'ADMIN_STORE_UNAVAILABLE',
+      message:'Verifikasi admin belum tersedia di Supabase. Pastikan profil admin sudah dimigrasikan.'
     });
   }
-
-  if (!adminDoc.exists) {
-    return res.status(403).json({
-      success: false,
-      code: 'NOT_ADMIN',
-      message: 'Akun Firebase ini belum terdaftar sebagai admin.'
-    });
+  if (!adminData) {
+    return res.status(403).json({ success:false, code:'NOT_ADMIN', message:'Akun Firebase ini belum terdaftar sebagai admin di Supabase.' });
   }
-
-  const adminData = adminDoc.data() || {};
   if (!['owner', 'admin'].includes(adminData.role)) {
     return res.status(403).json({
       success: false,
