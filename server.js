@@ -1356,9 +1356,15 @@ app.post('/api/licenses/session', activationLimiter, async (req, res) => {
       });
     }
 
-    // Railway public ingress menimpa X-Real-IP dengan IP koneksi klien.
-    // Jangan gunakan req.ip/X-Forwarded-For karena jumlah hop Railway tidak tetap.
-    const rawClientIp = String(req.headers['x-real-ip'] || '').trim();
+    // Utamakan IP dari Worker yang diautentikasi dengan secret bersama.
+    // Jangan percaya X-Client-IP dari klien langsung.
+    const workerSecret = String(process.env.WORKER_SHARED_SECRET || '');
+    const suppliedWorkerSecret = String(req.headers['x-worker-secret'] || '');
+    const trustedWorker = workerSecret.length >= 32 &&
+      safeEqual(suppliedWorkerSecret, workerSecret);
+    const rawClientIp = String(
+      trustedWorker ? (req.headers['x-client-ip'] || '') : (req.headers['x-real-ip'] || '')
+    ).trim();
     const clientIp = rawClientIp.startsWith('::ffff:')
       ? rawClientIp.slice(7)
       : rawClientIp;
@@ -1371,7 +1377,7 @@ app.post('/api/licenses/session', activationLimiter, async (req, res) => {
       ...(validClientIp ? { ip_address: validClientIp } : {})
     };
     if (!validClientIp) {
-      console.warn('POST /api/licenses/session: header X-Real-IP tidak tersedia/valid; IP tidak diperbarui.');
+      console.warn('POST /api/licenses/session: IP tepercaya tidak tersedia/valid; IP tidak diperbarui.');
     }
 
     let sessionResult;
