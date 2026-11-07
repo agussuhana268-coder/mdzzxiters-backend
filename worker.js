@@ -72,6 +72,15 @@ export default {
       headers.delete("cf-connecting-ip");
       headers.delete("cf-ray");
 
+      // Abaikan header IP/secret dari klien; Worker mengisi nilai tepercaya sendiri.
+      headers.delete("x-client-ip");
+      headers.delete("x-worker-secret");
+      const clientIp = request.headers.get("CF-Connecting-IP") || "";
+      if (clientIp) headers.set("X-Client-IP", clientIp);
+      if (env.WORKER_SHARED_SECRET) {
+        headers.set("X-Worker-Secret", String(env.WORKER_SHARED_SECRET));
+      }
+
       upstream = await fetch(target.toString(), {
         method: request.method,
         headers,
