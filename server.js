@@ -1562,3 +1562,5 @@ app.listen(PORT, () => {
   console.log('║  Bucket    : ' + BUCKET);
   console.log('╚═══════════════════════════════════════════╝\n');
 });
+
+// Trigger Railway deployment for the latest device-metadata session update.
