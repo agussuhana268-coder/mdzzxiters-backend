@@ -930,7 +930,7 @@ app.get('/api/sessions/status', requireFirebaseAdmin, async (_req, res) => {
     const [sessionsResult, onlineResult] = await Promise.all([
       supabaseAdmin
         .from('sessions')
-        .select('id,key,platform,online,last_seen,ip_address,last_seen_ip_at', { count: 'exact' })
+        .select('id,key,platform,online,last_seen,ip_address,last_seen_ip_at,device_brand,device_manufacturer,device_model,device_name,device_codename,android_version,sdk_int', { count: 'exact' })
         .order('last_seen', { ascending: false })
         .limit(1000),
       supabaseAdmin
@@ -1370,10 +1370,23 @@ app.post('/api/licenses/session', activationLimiter, async (req, res) => {
       : rawClientIp;
     const validClientIp = net.isIP(clientIp) ? clientIp : null;
 
+    // Metadata perangkat berasal dari Build Android; batasi panjang dan abaikan nilai kosong.
+    const cleanDeviceField = (value, max = 120) => {
+      const text = String(value || '').trim();
+      return text ? text.slice(0, max) : null;
+    };
+    const rawSdkInt = Number(req.body?.sdk_int);
     const sessionData = {
       platform: 'nexus_android',
       online: true,
       last_seen: new Date().toISOString(),
+      device_brand: cleanDeviceField(req.body?.device_brand),
+      device_manufacturer: cleanDeviceField(req.body?.device_manufacturer),
+      device_model: cleanDeviceField(req.body?.device_model),
+      device_name: cleanDeviceField(req.body?.device_name),
+      device_codename: cleanDeviceField(req.body?.device_codename),
+      android_version: cleanDeviceField(req.body?.android_version, 40),
+      sdk_int: Number.isInteger(rawSdkInt) && rawSdkInt > 0 && rawSdkInt < 1000 ? rawSdkInt : null,
       ...(validClientIp ? { ip_address: validClientIp } : {})
     };
     if (!validClientIp) {
