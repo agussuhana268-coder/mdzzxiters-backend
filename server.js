@@ -1355,7 +1355,7 @@ async function handleLicenseSession(req, res) {
     }
 
     const licenseStatus = String(licenseRow.status || '').trim().toLowerCase();
-    if (licenseRow.active === false || ['revoked', 'license_revoked'].includes(licenseStatus)) {
+    if (['revoked', 'license_revoked'].includes(licenseStatus)) {
       return res.status(403).json({ success: false, code: 'license_revoked' });
     }
     if (licenseRow.expires_at) {
@@ -1363,6 +1363,9 @@ async function handleLicenseSession(req, res) {
       if (Number.isFinite(expiryTime) && expiryTime <= Date.now()) {
         return res.status(403).json({ success: false, code: 'license_expired' });
       }
+    }
+    if (licenseRow.active === false) {
+      return res.status(403).json({ success: false, code: 'license_revoked' });
     }
     if (licenseRow.device_id && String(licenseRow.device_id) !== deviceId) {
       return res.status(403).json({ success: false, code: 'device_mismatch' });
