@@ -150,17 +150,17 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
         return res.status(403).json({ success: false, code: 'USER_CONSENT_REQUIRED' });
       }
 
-      const { data: activeSession, error: sessionError } = await supabaseAdmin.from('gps_tracking_sessions')
-        .select('tracking_session_id,status')
-        .eq('tracking_session_id', trackingSessionId)
-        .eq('license_key', auth.key)
-        .eq('device_id', auth.deviceId)
-        .eq('status', 'ACTIVE')
-        .maybeSingle();
-      if (sessionError) return dbFailure(res, 'active session lookup failed', sessionError);
-      if (!activeSession) {
-        return res.status(409).json({ success: false, code: 'TRACKING_SESSION_NOT_ACTIVE' });
-      }
+      const now = new Date().toISOString();
+      const { error: sessionError } = await supabaseAdmin.from('gps_tracking_sessions').upsert({
+        tracking_session_id: trackingSessionId,
+        license_key: auth.key,
+        device_id: auth.deviceId,
+        status: 'ACTIVE',
+        started_at: now,
+        stopped_at: null,
+        updated_at: now
+      }, { onConflict: 'tracking_session_id' });
+      if (sessionError) return dbFailure(res, 'tracking session upsert failed', sessionError);
 
       const { error } = await supabaseAdmin.from('gps_locations').insert({
         license_key: auth.key,
@@ -269,6 +269,16 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
       const isTracking = req.body?.is_tracking;
       if (typeof isTracking !== 'boolean')
         return res.status(400).json({ success: false, code: 'invalid_status_payload' });
+
+      if (isTracking) {
+        const { data: consent, error: consentError } = await supabaseAdmin.from('gps_consents')
+          .select('consent_status')
+          .eq('license_key', auth.key).eq('device_id', auth.deviceId).maybeSingle();
+        if (consentError) return dbFailure(res, 'status consent lookup failed', consentError);
+        if (!consent || consent.consent_status !== 'GRANTED') {
+          return res.status(403).json({ success: false, code: 'USER_CONSENT_REQUIRED' });
+        }
+      }
 
       const now = new Date().toISOString();
       const { error } = await supabaseAdmin.from('gps_tracking_sessions')
