@@ -578,10 +578,33 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
       });
     }
 
+    /* Sesi iOS menjadi sumber tambahan untuk menandai lisensi INSANITY MAX
+       sebagai sudah terikat, meskipun kolom licenses.used belum tersinkron. */
+    const { data: sessionRows, error: sessionError } = await supabaseAdmin
+      .from('sessions')
+      .select('key,platform,device_id')
+      .eq('platform', 'insanitymax_ios')
+      .limit(5000);
+    if (sessionError) {
+      console.error('GET /api/licenses/status session lookup error:', sessionError.message);
+      return res.status(502).json({ success: false, message: 'Gagal membaca binding sesi iOS.' });
+    }
+    const iosBindings = new Map((sessionRows || []).map(row => [
+      String(row.key || '').trim().toUpperCase(), row
+    ]));
+    const mergedRows = (data || []).map(row => {
+      const binding = iosBindings.get(String(row.key || '').trim().toUpperCase());
+      const isInsanity = String(row.project || '').toLowerCase().includes('insanity max');
+      return binding && isInsanity
+        ? { ...row, used: true, status: row.status === 'revoked' ? row.status : 'used',
+            device_id: row.device_id || binding.device_id || null }
+        : row;
+    });
+
     return res.set('Cache-Control', 'no-store').json({
       success: true,
-      count: (data || []).length,
-      rows: data || []
+      count: mergedRows.length,
+      rows: mergedRows
     });
   } catch (err) {
     console.error('GET /api/licenses/status gagal:', err.message);
@@ -1315,6 +1338,36 @@ async function handleLicenseSession(req, res) {
       return res.status(400).json({ success: false, code: 'invalid_input' });
     }
 
+    /* Baca status lisensi terlebih dahulu agar kode revoked/expired/invalid
+       tidak bergantung pada variasi pesan dari implementasi RPC SQL. */
+    const { data: licenseRow, error: licenseLookupError } = await supabaseAdmin
+      .from('licenses')
+      .select('key,project,active,used,device_id,status,expires_at')
+      .eq('key', key)
+      .maybeSingle();
+
+    if (licenseLookupError) {
+      console.error('Lookup lisensi gagal:', licenseLookupError.message);
+      return res.status(500).json({ success: false, code: 'server_error' });
+    }
+    if (!licenseRow) {
+      return res.status(403).json({ success: false, code: 'license_invalid' });
+    }
+
+    const licenseStatus = String(licenseRow.status || '').trim().toLowerCase();
+    if (licenseRow.active === false || ['revoked', 'license_revoked'].includes(licenseStatus)) {
+      return res.status(403).json({ success: false, code: 'license_revoked' });
+    }
+    if (licenseRow.expires_at) {
+      const expiryTime = new Date(licenseRow.expires_at).getTime();
+      if (Number.isFinite(expiryTime) && expiryTime <= Date.now()) {
+        return res.status(403).json({ success: false, code: 'license_expired' });
+      }
+    }
+    if (licenseRow.device_id && String(licenseRow.device_id) !== deviceId) {
+      return res.status(403).json({ success: false, code: 'device_mismatch' });
+    }
+
     const { data: checkData, error: checkError } = await supabaseAdmin.rpc('check_license', {
       p_key: key,
       p_device_id: deviceId
@@ -1327,7 +1380,12 @@ async function handleLicenseSession(req, res) {
 
     const checked = typeof checkData === 'string' ? JSON.parse(checkData) : checkData;
     if (!checked || checked.success !== true) {
-      return res.status(403).json({ success: false, code: checked?.code || 'license_invalid' });
+      const rpcCode = String(checked?.code || checked?.status || '').toLowerCase();
+      const normalizedCode = /revok|inactive/.test(rpcCode) ? 'license_revoked'
+        : /expir/.test(rpcCode) ? 'license_expired'
+        : /device|bound|mismatch/.test(rpcCode) ? 'device_mismatch'
+        : 'license_invalid';
+      return res.status(403).json({ success: false, code: normalizedCode });
     }
 
     const { data: rows, error: findError } = await supabaseAdmin
@@ -1378,6 +1436,21 @@ async function handleLicenseSession(req, res) {
     if (sessionResult.error) {
       console.error('Pembaruan sesi gagal:', sessionResult.error.message);
       return res.status(500).json({ success: false, code: 'session_update_failed' });
+    }
+
+    /* Sukses validasi + penyimpanan sesi berarti key telah dipakai/terikat. */
+    const { error: markUsedError } = await supabaseAdmin
+      .from('licenses')
+      .update({
+        used: true,
+        used_at: licenseRow.used_at || new Date().toISOString(),
+        status: 'used',
+        device_id: licenseRow.device_id || deviceId
+      })
+      .eq('key', key);
+    if (markUsedError) {
+      console.error('Penandaan lisensi terpakai gagal:', markUsedError.message);
+      return res.status(500).json({ success: false, code: 'license_status_update_failed' });
     }
 
     return res.set('Cache-Control', 'no-store').json({
