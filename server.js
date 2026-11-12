@@ -1393,7 +1393,7 @@ async function handleLicenseSession(req, res) {
 
     const { data: rows, error: findError } = await supabaseAdmin
       .from('sessions')
-      .select('id')
+      .select('id,device_brand,device_manufacturer,device_model,device_name,device_codename,android_version,sdk_int')
       .eq('key', key)
       .limit(1);
 
@@ -1415,17 +1415,21 @@ async function handleLicenseSession(req, res) {
       const text = String(value || '').trim();
       return text ? text.slice(0, max) : null;
     };
+    const previousSession = rows && rows.length ? rows[0] : {};
     const sessionData = {
       platform,
       online: true,
       last_seen: new Date().toISOString(),
-      device_brand: cleanDeviceField(req.body?.device_brand),
-      device_manufacturer: cleanDeviceField(req.body?.device_manufacturer),
-      device_model: cleanDeviceField(req.body?.device_model),
-      device_name: cleanDeviceField(req.body?.device_name),
-      device_codename: cleanDeviceField(req.body?.device_codename),
-      android_version: cleanDeviceField(req.body?.android_version, 40),
-      sdk_int: null,
+      /* Heartbeat yang tidak mengirim metadata tidak boleh menghapus nama
+         perangkat yang sudah tersimpan saat aktivasi/login pertama. */
+      device_brand: cleanDeviceField(req.body?.device_brand) || previousSession.device_brand || null,
+      device_manufacturer: cleanDeviceField(req.body?.device_manufacturer) || previousSession.device_manufacturer || null,
+      device_model: cleanDeviceField(req.body?.device_model) || previousSession.device_model || null,
+      device_name: cleanDeviceField(req.body?.device_name) || previousSession.device_name || null,
+      device_codename: cleanDeviceField(req.body?.device_codename) || previousSession.device_codename || null,
+      android_version: cleanDeviceField(req.body?.android_version, 40) || previousSession.android_version || null,
+      sdk_int: Number.isInteger(Number(req.body?.sdk_int)) && Number(req.body?.sdk_int) > 0
+        ? Number(req.body.sdk_int) : (previousSession.sdk_int || null),
       ...(validClientIp ? { ip_address: validClientIp } : {})
     };
 
