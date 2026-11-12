@@ -582,7 +582,7 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
        sebagai sudah terikat, meskipun kolom licenses.used belum tersinkron. */
     const { data: sessionRows, error: sessionError } = await supabaseAdmin
       .from('sessions')
-      .select('key,platform,device_id')
+      .select('key,platform')
       .eq('platform', 'insanitymax_ios')
       .limit(5000);
     if (sessionError) {
@@ -597,7 +597,7 @@ app.get('/api/licenses/status', requireFirebaseAdmin, async (_req, res) => {
       const isInsanity = String(row.project || '').toLowerCase().includes('insanity max');
       return binding && isInsanity
         ? { ...row, used: true, status: row.status === 'revoked' ? row.status : 'used',
-            device_id: row.device_id || binding.device_id || null }
+            device_id: row.device_id || null }
         : row;
     });
 
