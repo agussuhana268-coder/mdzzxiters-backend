@@ -133,7 +133,7 @@ const app = express();
 const corsOptions = {
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'X-Admin-Key', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'X-Admin-Key', 'X-License-Key', 'X-Device-Id', 'Authorization'],
   optionsSuccessStatus: 204
 };
 app.use(cors(corsOptions));
@@ -1608,6 +1608,9 @@ async function requireFirebaseAdmin(req, res, next) {
 
   next();
 }
+
+/* ══ NEXUS GPS MODULE — isolated routes; existing license routes remain unchanged ══ */
+require('./gps-module')({ app, supabaseAdmin, requireFirebaseAdmin });
 
 /* ── Start ── */
 app.listen(PORT, () => {
