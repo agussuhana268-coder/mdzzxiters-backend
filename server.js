@@ -1303,45 +1303,33 @@ app.post('/api/licenses/check', activationLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/licenses/session', activationLimiter, async (req, res) => {
+async function handleLicenseSession(req, res) {
   try {
     const key = String(req.body?.key || '').trim().toUpperCase();
     const deviceId = String(req.body?.device_id || '').trim();
+    const requestedPlatform = String(req.body?.platform || 'nexus_android').trim().toLowerCase();
+    const allowedPlatforms = new Set(['nexus_android', 'insanitymax_ios', 'insanitymax_web']);
+    const platform = allowedPlatforms.has(requestedPlatform) ? requestedPlatform : null;
 
-    if (!key || !deviceId || key.length > 200 || deviceId.length > 300) {
-      return res.status(400).json({
-        success: false,
-        code: 'invalid_input'
-      });
+    if (!key || !deviceId || !platform || key.length > 200 || deviceId.length > 300) {
+      return res.status(400).json({ success: false, code: 'invalid_input' });
     }
 
-    // Pastikan lisensi masih valid untuk perangkat ini.
-    const { data: checkData, error: checkError } =
-      await supabaseAdmin.rpc('check_license', {
-        p_key: key,
-        p_device_id: deviceId
-      });
+    const { data: checkData, error: checkError } = await supabaseAdmin.rpc('check_license', {
+      p_key: key,
+      p_device_id: deviceId
+    });
 
     if (checkError) {
       console.error('Pemeriksaan sesi gagal:', checkError.message);
-      return res.status(500).json({
-        success: false,
-        code: 'server_error'
-      });
+      return res.status(500).json({ success: false, code: 'server_error' });
     }
 
-    const checked = typeof checkData === 'string'
-      ? JSON.parse(checkData)
-      : checkData;
-
+    const checked = typeof checkData === 'string' ? JSON.parse(checkData) : checkData;
     if (!checked || checked.success !== true) {
-      return res.status(403).json({
-        success: false,
-        code: checked?.code || 'license_invalid'
-      });
+      return res.status(403).json({ success: false, code: checked?.code || 'license_invalid' });
     }
 
-    // Cari sesi yang sudah ada.
     const { data: rows, error: findError } = await supabaseAdmin
       .from('sessions')
       .select('id')
@@ -1350,34 +1338,24 @@ app.post('/api/licenses/session', activationLimiter, async (req, res) => {
 
     if (findError) {
       console.error('Pencarian sesi gagal:', findError.message);
-      return res.status(500).json({
-        success: false,
-        code: 'session_update_failed'
-      });
+      return res.status(500).json({ success: false, code: 'session_update_failed' });
     }
 
-    // Utamakan IP dari Worker yang diautentikasi dengan secret bersama.
-    // Jangan percaya X-Client-IP dari klien langsung.
     const workerSecret = String(process.env.WORKER_SHARED_SECRET || '');
     const suppliedWorkerSecret = String(req.headers['x-worker-secret'] || '');
-    const trustedWorker = workerSecret.length >= 32 &&
-      safeEqual(suppliedWorkerSecret, workerSecret);
+    const trustedWorker = workerSecret.length >= 32 && safeEqual(suppliedWorkerSecret, workerSecret);
     const rawClientIp = String(
       trustedWorker ? (req.headers['x-client-ip'] || '') : (req.headers['x-real-ip'] || '')
     ).trim();
-    const clientIp = rawClientIp.startsWith('::ffff:')
-      ? rawClientIp.slice(7)
-      : rawClientIp;
+    const clientIp = rawClientIp.startsWith('::ffff:') ? rawClientIp.slice(7) : rawClientIp;
     const validClientIp = net.isIP(clientIp) ? clientIp : null;
 
-    // Metadata perangkat berasal dari Build Android; batasi panjang dan abaikan nilai kosong.
     const cleanDeviceField = (value, max = 120) => {
       const text = String(value || '').trim();
       return text ? text.slice(0, max) : null;
     };
-    const rawSdkInt = Number(req.body?.sdk_int);
     const sessionData = {
-      platform: 'nexus_android',
+      platform,
       online: true,
       last_seen: new Date().toISOString(),
       device_brand: cleanDeviceField(req.body?.device_brand),
@@ -1386,43 +1364,43 @@ app.post('/api/licenses/session', activationLimiter, async (req, res) => {
       device_name: cleanDeviceField(req.body?.device_name),
       device_codename: cleanDeviceField(req.body?.device_codename),
       android_version: cleanDeviceField(req.body?.android_version, 40),
-      sdk_int: Number.isInteger(rawSdkInt) && rawSdkInt > 0 && rawSdkInt < 1000 ? rawSdkInt : null,
+      sdk_int: null,
       ...(validClientIp ? { ip_address: validClientIp } : {})
     };
-    if (!validClientIp) {
-      console.warn('POST /api/licenses/session: IP tepercaya tidak tersedia/valid; IP tidak diperbarui.');
-    }
 
     let sessionResult;
-
     if (rows && rows.length > 0) {
-      sessionResult = await supabaseAdmin
-        .from('sessions')
-        .update(sessionData)
-        .eq('id', rows[0].id);
+      sessionResult = await supabaseAdmin.from('sessions').update(sessionData).eq('id', rows[0].id);
     } else {
-      sessionResult = await supabaseAdmin
-        .from('sessions')
-        .insert({ key, ...sessionData });
+      sessionResult = await supabaseAdmin.from('sessions').insert({ key, ...sessionData });
     }
 
     if (sessionResult.error) {
       console.error('Pembaruan sesi gagal:', sessionResult.error.message);
-      return res.status(500).json({
-        success: false,
-        code: 'session_update_failed'
-      });
+      return res.status(500).json({ success: false, code: 'session_update_failed' });
     }
 
-    return res.json({ success: true });
-  } catch (err) {
-    console.error('POST /api/licenses/session gagal:', err.message);
-    return res.status(500).json({
-      success: false,
-      code: 'server_error'
+    return res.set('Cache-Control', 'no-store').json({
+      success: true,
+      platform,
+      license: { valid: true }
     });
+  } catch (err) {
+    console.error('Pencatatan sesi lisensi gagal:', err.message);
+    return res.status(500).json({ success: false, code: 'server_error' });
   }
+}
+
+const heartbeatLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, code: 'heartbeat_rate_limited' }
 });
+
+app.post('/api/licenses/session', activationLimiter, handleLicenseSession);
+app.post('/api/licenses/heartbeat', heartbeatLimiter, handleLicenseSession);
 
 async function verifyAdminPassword(password, stored) {
   if (typeof stored !== 'string' || !stored) return false;
