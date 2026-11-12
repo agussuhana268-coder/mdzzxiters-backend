@@ -226,10 +226,21 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
         .from('gps_commands')
         .select('command_id,command,status')
         .eq('command_id', commandId)
+        .eq('license_key', auth.key)
+        .eq('device_id', auth.deviceId)
+        .eq('status', 'PENDING')
         .maybeSingle();
       if (commandError) return dbFailure(res, 'command lookup failed', commandError);
+      if (!command) return res.status(404).json({ success: false, code: 'command_not_found' });
 
-      if (command && command.command === 'START_TRACKING') {
+      if (command.command === 'START_TRACKING') {
+        const { data: consent, error: consentError } = await supabaseAdmin.from('gps_consents')
+          .select('consent_status')
+          .eq('license_key', auth.key).eq('device_id', auth.deviceId).maybeSingle();
+        if (consentError) return dbFailure(res, 'command ACK consent lookup failed', consentError);
+        if (!consent || consent.consent_status !== 'GRANTED') {
+          return res.status(403).json({ success: false, code: 'USER_CONSENT_REQUIRED' });
+        }
         const now = new Date().toISOString();
         await supabaseAdmin.from('gps_tracking_sessions').upsert({
           tracking_session_id: trackingSessionId,
