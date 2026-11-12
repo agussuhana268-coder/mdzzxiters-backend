@@ -142,16 +142,25 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
         return res.status(400).json({ success: false, code: 'invalid_location_payload' });
       }
 
-      // Upsert active tracking session automatically if location update arrives
-      const now = new Date().toISOString();
-      await supabaseAdmin.from('gps_tracking_sessions').upsert({
-        tracking_session_id: trackingSessionId,
-        license_key: auth.key,
-        device_id: auth.deviceId,
-        status: 'ACTIVE',
-        started_at: now,
-        updated_at: now
-      }, { onConflict: 'tracking_session_id' });
+      const { data: consent, error: consentError } = await supabaseAdmin.from('gps_consents')
+        .select('consent_status')
+        .eq('license_key', auth.key).eq('device_id', auth.deviceId).maybeSingle();
+      if (consentError) return dbFailure(res, 'location consent lookup failed', consentError);
+      if (!consent || consent.consent_status !== 'GRANTED') {
+        return res.status(403).json({ success: false, code: 'USER_CONSENT_REQUIRED' });
+      }
+
+      const { data: activeSession, error: sessionError } = await supabaseAdmin.from('gps_tracking_sessions')
+        .select('tracking_session_id,status')
+        .eq('tracking_session_id', trackingSessionId)
+        .eq('license_key', auth.key)
+        .eq('device_id', auth.deviceId)
+        .eq('status', 'ACTIVE')
+        .maybeSingle();
+      if (sessionError) return dbFailure(res, 'active session lookup failed', sessionError);
+      if (!activeSession) {
+        return res.status(409).json({ success: false, code: 'TRACKING_SESSION_NOT_ACTIVE' });
+      }
 
       const { error } = await supabaseAdmin.from('gps_locations').insert({
         license_key: auth.key,
@@ -182,7 +191,8 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
       const { data, error } = await supabaseAdmin
         .from('gps_commands')
         .select('command_id,command,status,created_at')
-        .or(`license_key.eq.${auth.key},device_id.eq.${auth.deviceId}`)
+        .eq('license_key', auth.key)
+        .eq('device_id', auth.deviceId)
         .eq('status', 'PENDING')
         .order('created_at', { ascending: true })
         .limit(1)
@@ -288,17 +298,91 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
 
       if (error) return dbFailure(res, 'admin devices query failed', error);
 
-      const devices = (licenses || []).map(l => ({
-        device_id: l.device_id || l.key,
-        key: l.key,
-        nexus_id: l.nexus_id || 'NEXUS',
-        active: l.active,
-        expires_at: l.expires_at
-      }));
+      const [{ data: sessions, error: sessionsError }, { data: consents, error: consentsError }] = await Promise.all([
+        supabaseAdmin.from('gps_tracking_sessions')
+          .select('tracking_session_id,license_key,device_id,status,started_at,stopped_at,updated_at')
+          .order('updated_at', { ascending: false }),
+        supabaseAdmin.from('gps_consents')
+          .select('license_key,device_id,consent_status,consented_at,revoked_at')
+      ]);
+      if (sessionsError) return dbFailure(res, 'admin session list failed', sessionsError);
+      if (consentsError) return dbFailure(res, 'admin consent list failed', consentsError);
+
+      const sessionMap = new Map();
+      (sessions || []).forEach(s => {
+        const k = String(s.license_key) + '|' + String(s.device_id);
+        if (!sessionMap.has(k)) sessionMap.set(k, s);
+      });
+      const consentMap = new Map((consents || []).map(c => [String(c.license_key) + '|' + String(c.device_id), c]));
+      const devices = (licenses || []).map(l => {
+        const deviceId = l.device_id || l.key;
+        const mapKey = String(l.key) + '|' + String(deviceId);
+        const session = sessionMap.get(mapKey) || null;
+        const consent = consentMap.get(mapKey) || null;
+        return {
+          device_id: deviceId,
+          key: l.key,
+          nexus_id: l.nexus_id || 'NEXUS',
+          active: l.active,
+          expires_at: l.expires_at,
+          tracking_status: session ? session.status : 'NOT_STARTED',
+          tracking_session_id: session?.tracking_session_id || null,
+          tracking_updated_at: session?.updated_at || null,
+          consent_status: consent?.consent_status || 'NOT_GRANTED'
+        };
+      });
 
       return res.json({ success: true, devices });
     } catch (error) {
       return dbFailure(res, 'admin devices query failed', error);
+    }
+  });
+
+  app.get('/api/admin/location/status/:device_id', requireFirebaseAdmin, async (req, res) => {
+    try {
+      const input = clean(req.params.device_id, 300);
+      const { data: license, error: licenseError } = await supabaseAdmin.from('licenses')
+        .select('key,device_id,active,expires_at')
+        .or('key.eq.' + input.toUpperCase() + ',device_id.eq.' + input)
+        .limit(1).maybeSingle();
+      if (licenseError) return dbFailure(res, 'admin status license lookup failed', licenseError);
+      if (!license) return res.status(404).json({ success: false, code: 'device_not_found' });
+
+      const deviceId = license.device_id || input;
+      const [{ data: session, error: sessionError }, { data: consent, error: consentError }, { data: latest, error: locationError }] = await Promise.all([
+        supabaseAdmin.from('gps_tracking_sessions')
+          .select('tracking_session_id,status,started_at,stopped_at,updated_at')
+          .eq('license_key', license.key).eq('device_id', deviceId)
+          .order('updated_at', { ascending: false }).limit(1).maybeSingle(),
+        supabaseAdmin.from('gps_consents')
+          .select('consent_status,consented_at,revoked_at')
+          .eq('license_key', license.key).eq('device_id', deviceId).maybeSingle(),
+        supabaseAdmin.from('gps_locations')
+          .select('recorded_at,latitude,longitude,accuracy,provider,device_model')
+          .eq('license_key', license.key).eq('device_id', deviceId)
+          .order('recorded_at', { ascending: false }).limit(1).maybeSingle()
+      ]);
+      if (sessionError) return dbFailure(res, 'admin status session lookup failed', sessionError);
+      if (consentError) return dbFailure(res, 'admin status consent lookup failed', consentError);
+      if (locationError) return dbFailure(res, 'admin status location lookup failed', locationError);
+
+      const lastLocationAt = latest?.recorded_at || null;
+      const ageMs = lastLocationAt ? Date.now() - new Date(lastLocationAt).getTime() : null;
+      const status = session?.status === 'ACTIVE'
+        ? (ageMs !== null && ageMs > 120000 ? 'STALE' : 'ACTIVE')
+        : (session?.status || 'NOT_STARTED');
+
+      return res.json({
+        success: true,
+        device_id: deviceId,
+        license_key: license.key,
+        tracking_status: status,
+        session: session || null,
+        consent_status: consent?.consent_status || 'NOT_GRANTED',
+        latest_location: latest || null
+      });
+    } catch (error) {
+      return dbFailure(res, 'admin status lookup failed', error);
     }
   });
 
@@ -361,16 +445,22 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
       const targetKey = license ? license.key : inputVal.toUpperCase();
       const targetDeviceId = (license && license.device_id) ? license.device_id : inputVal;
 
-      // Auto-upsert consent row so START_TRACKING never gets blocked by missing consent
       const now = new Date().toISOString();
-      await supabaseAdmin.from('gps_consents').upsert({
-        license_key: targetKey,
-        device_id: targetDeviceId,
-        consent_status: 'GRANTED',
-        consented_at: now,
-        revoked_at: null,
-        updated_at: now
-      }, { onConflict: 'license_key,device_id' });
+      if (command === 'START_TRACKING') {
+        const { data: consent, error: consentError } = await supabaseAdmin.from('gps_consents')
+          .select('consent_status')
+          .eq('license_key', targetKey)
+          .eq('device_id', targetDeviceId)
+          .maybeSingle();
+        if (consentError) return dbFailure(res, 'admin command consent check failed', consentError);
+        if (!consent || consent.consent_status !== 'GRANTED') {
+          return res.status(409).json({
+            success: false,
+            code: 'USER_CONSENT_REQUIRED',
+            message: 'Pengguna perangkat harus menyetujui berbagi lokasi dari aplikasi terlebih dahulu.'
+          });
+        }
+      }
 
       const commandId = crypto.randomUUID ? crypto.randomUUID() : ('cmd_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
 
