@@ -68,3 +68,11 @@ alter table public.gps_locations enable row level security;
 revoke all on public.gps_consents, public.gps_commands, public.gps_tracking_sessions, public.gps_locations from anon, authenticated;
 grant all on public.gps_consents, public.gps_commands, public.gps_tracking_sessions, public.gps_locations to service_role;
 grant usage, select on all sequences in schema public to service_role;
+
+
+-- Battery telemetry (optional; sent only during an explicitly consented tracking session).
+alter table public.gps_locations
+  add column if not exists battery_level smallint
+    check (battery_level between 0 and 100);
+alter table public.gps_locations
+  add column if not exists is_charging boolean;
