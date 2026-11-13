@@ -67,15 +67,4 @@ alter table public.gps_locations enable row level security;
 
 revoke all on public.gps_consents, public.gps_commands, public.gps_tracking_sessions, public.gps_locations from anon, authenticated;
 grant all on public.gps_consents, public.gps_commands, public.gps_tracking_sessions, public.gps_locations to service_role;
--- Grant sequence access only when gps_locations.id actually has a backing sequence.
--- This also supports databases where gps_locations already existed with a non-identity id.
-do $
-declare
-  seq_name text;
-begin
-  seq_name := pg_get_serial_sequence('public.gps_locations', 'id');
-  if seq_name is not null then
-    execute format('grant usage, select on sequence %s to service_role', seq_name);
-  end if;
-end
-$;
+grant usage, select on all sequences in schema public to service_role;
