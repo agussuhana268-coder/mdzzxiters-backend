@@ -14,6 +14,13 @@ const ALLOWED_PATHS = new Set([
   "/api/licenses/session",
 ]);
 
+// GPS consent/tracking and GPS admin routes are proxied to the authenticated
+// Railway API. The upstream remains responsible for license/admin authorization.
+const ALLOWED_PREFIXES = [
+  "/api/location/",
+  "/api/admin/location/",
+];
+
 function corsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": origin || "*",
@@ -44,7 +51,10 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
 
-    if (!ALLOWED_PATHS.has(url.pathname)) {
+    if (
+      !ALLOWED_PATHS.has(url.pathname) &&
+      !ALLOWED_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))
+    ) {
       return json({ success: false, code: "not_found" }, 404, origin);
     }
 
