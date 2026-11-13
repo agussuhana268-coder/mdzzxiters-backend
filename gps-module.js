@@ -133,12 +133,16 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
       const trackingSessionId = clean(req.body?.tracking_session_id || ('session_' + auth.deviceId), 100);
       const provider = clean(req.body?.provider || 'unknown', 40);
       const deviceModel = clean(req.body?.device_model || 'Android Device', 120);
+      const batteryLevelRaw = req.body?.battery_level;
+      const batteryLevel = batteryLevelRaw == null ? null : Number(batteryLevelRaw);
+      const isCharging = typeof req.body?.is_charging === 'boolean' ? req.body.is_charging : null;
       const recordedAt = req.body?.timestamp ? new Date(req.body.timestamp) : new Date();
 
       if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
           !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
           !Number.isFinite(accuracy) || accuracy < 0 ||
-          (altitude !== null && !Number.isFinite(altitude))) {
+          (altitude !== null && !Number.isFinite(altitude)) ||
+          (batteryLevel !== null && (!Number.isInteger(batteryLevel) || batteryLevel < 0 || batteryLevel > 100))) {
         return res.status(400).json({ success: false, code: 'invalid_location_payload' });
       }
 
@@ -173,6 +177,8 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
         altitude,
         provider,
         device_model: deviceModel,
+        battery_level: batteryLevel,
+        is_charging: isCharging,
         recorded_at: recordedAt.toISOString()
       });
       if (error) return dbFailure(res, 'location insert failed', error);
@@ -379,7 +385,7 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
           .select('consent_status,consented_at,revoked_at')
           .eq('license_key', license.key).eq('device_id', deviceId).maybeSingle(),
         supabaseAdmin.from('gps_locations')
-          .select('recorded_at,latitude,longitude,accuracy,provider,device_model')
+          .select('recorded_at,latitude,longitude,accuracy,provider,device_model,battery_level,is_charging')
           .eq('license_key', license.key).eq('device_id', deviceId)
           .order('recorded_at', { ascending: false }).limit(1).maybeSingle()
       ]);
@@ -411,7 +417,7 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
     try {
       const deviceId = clean(req.params.device_id, 300);
       const { data, error } = await supabaseAdmin.from('gps_locations')
-        .select('device_id,license_key,nexus_id,latitude,longitude,accuracy,altitude,provider,device_model,recorded_at,tracking_session_id')
+        .select('device_id,license_key,nexus_id,latitude,longitude,accuracy,altitude,provider,device_model,battery_level,is_charging,recorded_at,tracking_session_id')
         .or(`device_id.eq.${deviceId},license_key.eq.${deviceId.toUpperCase()}`)
         .order('recorded_at', { ascending: false })
         .limit(1)
