@@ -81,7 +81,7 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
       success: false,
       code: 'gps_storage_unavailable',
       db_code: errCode,
-      message: \`Penyimpanan GPS belum siap (\${errCode}). Pastikan SQL migration GPS sudah dijalankan.\`
+      message: `Penyimpanan GPS belum siap (${errCode}). Pastikan SQL migration GPS sudah dijalankan.`
     });
   }
 
