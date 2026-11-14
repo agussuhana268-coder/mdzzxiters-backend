@@ -370,7 +370,7 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
       const deviceId = clean(req.params.device_id, 300).toLowerCase();
       const { data, error } = await supabaseAdmin.from('gps_locations')
         .select('device_id,license_key,nexus_id,latitude,longitude,accuracy,altitude,provider,device_model,battery_level,is_charging,recorded_at,tracking_session_id')
-        .or(\`device_id.eq.\${deviceId},license_key.eq.\${deviceId.toUpperCase()}\`)
+        .or(`device_id.eq.${deviceId},license_key.eq.${deviceId.toUpperCase()}`)
         .order('recorded_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -390,7 +390,7 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
 
       const { data, error } = await supabaseAdmin.from('gps_locations')
         .select('latitude,longitude,accuracy,altitude,provider,device_model,battery_level,is_charging,recorded_at,tracking_session_id')
-        .or(\`device_id.eq.\${deviceId},license_key.eq.\${deviceId.toUpperCase()}\`)
+        .or(`device_id.eq.${deviceId},license_key.eq.${deviceId.toUpperCase()}`)
         .order('recorded_at', { ascending: false })
         .limit(limit);
 
@@ -413,7 +413,7 @@ module.exports = function registerGpsRoutes({ app, supabaseAdmin, requireFirebas
       const { data: license, error: licenseError } = await supabaseAdmin
         .from('licenses')
         .select('key,active,expires_at,device_id,status')
-        .or(\`key.eq.\${inputVal.toUpperCase()},device_id.eq.\${inputVal.toLowerCase()}\`)
+        .or(`key.eq.${inputVal.toUpperCase()},device_id.eq.${inputVal.toLowerCase()}`)
         .limit(1)
         .maybeSingle();
 
