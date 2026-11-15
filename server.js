@@ -1609,8 +1609,6 @@ async function requireFirebaseAdmin(req, res, next) {
   next();
 }
 
-/* ══ NEXUS GPS MODULE — isolated routes; existing license routes remain unchanged ══ */
-require('./gps-module')({ app, supabaseAdmin, requireFirebaseAdmin });
 
 /* ── Start ── */
 app.listen(PORT, () => {
